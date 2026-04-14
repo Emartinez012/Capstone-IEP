@@ -1,0 +1,25 @@
+{
+  "major": {
+    "name": "Computer Artificial Intelligence"
+  },
+  "effective_date": "2024-01-01",
+  "courses": [
+    { "priority": 1,  "code": "CAI1001C", "name": "Introduction to Artificial Intelligence",  "levels": "1"     },
+    { "priority": 2,  "code": "CGS1060C", "name": "Introduction to Computer Science",         "levels": "1;2;3" },
+    { "priority": 3,  "code": "COP1047C", "name": "Programming Fundamentals",                 "levels": "1"     },
+    { "priority": 4,  "code": "MAC1105",  "name": "College Algebra",                          "levels": "1"     },
+    { "priority": 5,  "code": "CAI2100C", "name": "Applied Artificial Intelligence",           "levels": "2"     },
+    { "priority": 6,  "code": "PHI2680",  "name": "Ethics in Technology",                     "levels": "1;2;3" },
+    { "priority": 7,  "code": "CGS1540C", "name": "Database Management",                      "levels": "1;2;3" },
+    { "priority": 8,  "code": "CAI2300C", "name": "Machine Learning Fundamentals",            "levels": "2"     },
+    { "priority": 9,  "code": "CAI2840C", "name": "Deep Learning",                            "levels": "2"     },
+    { "priority": 10, "code": "CTS1145",  "name": "Network Fundamentals",                     "levels": "2"     },
+    { "priority": 11, "code": "CAI2820C", "name": "AI Application Development",               "levels": "1;2;3" },
+    { "priority": 12, "code": "COP2800",  "name": "Advanced Programming",                     "levels": "3"     },
+    { "priority": 13, "code": "STA2023",  "name": "Introduction to Statistics",               "levels": "2;3"   },
+    { "priority": 14, "code": "ENC1101",  "name": "English Composition I",                    "levels": "1;2;3" },
+    { "priority": 15, "code": "HUM1020",  "name": "Introduction to Humanities",               "levels": "1;2;3" },
+    { "priority": 16, "code": "POS2041",  "name": "American Government",                      "levels": "1;2;3" },
+    { "priority": 17, "code": "CHM1020",  "name": "Introduction to Chemistry",                "levels": "2;3"   }
+  ]
+}
