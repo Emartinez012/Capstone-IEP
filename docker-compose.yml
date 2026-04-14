@@ -2,21 +2,23 @@ services:
   backend:
     build: ./server
     container_name: backend-service
-    ports:
-      - "3001:3001"
+    environment:
+      - POSTGRES_HOST=iep_engine_db # Use the container name of your existing DB
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=password123
+      - POSTGRES_DB=iep_engine
     networks:
-      - app-network
+      - iep-internal # Join the existing network
 
   frontend:
     build: ./client
     container_name: frontend-service
     ports:
       - "5173:5173"
-    depends_on:
-      - backend
     networks:
-      - app-network
+      - iep-internal
 
 networks:
-  app-network:
-    driver: bridge
+  # Tell Docker this network already exists outside of this compose file
+  iep-internal:
+    external: true

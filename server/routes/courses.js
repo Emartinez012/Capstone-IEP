@@ -1,29 +1,28 @@
 // =============================================================================
-// routes/courses.js
-// API endpoints for course catalog data.
-//
-// GET /api/courses   — list all courses in the catalog
+// routes/courses.js - Refactored for PostgreSQL
 // =============================================================================
-
 const express = require('express');
 const db      = require('../db');
+const router  = express.Router();
 
-const router = express.Router();
+router.get('/', async (req, res) => {
+    try {
+        const result = await db.query(
+            `SELECT course_code, title FROM courses ORDER BY course_code ASC`
+        );
 
+        // Map database columns to the format the React frontend expects
+        const courses = result.rows.map(row => ({
+            id:   row.course_code,
+            code: row.course_code,
+            name: row.title
+        }));
 
-// -----------------------------------------------------------------------------
-// GET /api/courses
-// Returns all courses sorted alphabetically by code.
-// -----------------------------------------------------------------------------
-router.get('/', (req, res) => {
-    const courses = db.prepare(`
-        SELECT id, code, name
-        FROM courses
-        ORDER BY code ASC
-    `).all();
-
-    res.json(courses);
+        res.json(courses);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error fetching courses.' });
+    }
 });
-
 
 module.exports = router;

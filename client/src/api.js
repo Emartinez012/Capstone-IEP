@@ -21,7 +21,8 @@ export async function getStudentById(id) {
 }
 
 export async function updateStudentProfile(studentId, data) {
-  const res = await fetch(`${BASE}/students/${studentId}/profile`, {
+  // Ensure the URL matches your express route. If it's a PUT to /api/students/:id
+  const res = await fetch(`${BASE}/students/${studentId}`, {
     method:  'PUT',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(data)
