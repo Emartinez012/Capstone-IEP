@@ -34,7 +34,15 @@ export default function App() {
   if (view === 'student-auth') {
     return (
       <StudentAuth
-        onLogin={(u)  => { setUser(u); setView('student-dashboard'); }}
+        onLogin={(u) => {
+          setUser(u);
+          // Route students who haven't completed onboarding back to it
+          if (u.role === 'Student' && !u.degree_code) {
+            setView('student-onboarding');
+          } else {
+            setView('student-dashboard');
+          }
+        }}
         onSignup={(u) => { setUser(u); setView('student-onboarding'); }}
         onBack={()    => setView('landing')}
       />
@@ -42,6 +50,11 @@ export default function App() {
   }
 
   if (view === 'student-onboarding') {
+    // If user session was lost (e.g. hot-reload reset state), bounce back to auth
+    if (!user) {
+      setView('student-auth');
+      return null;
+    }
     return (
       <StudentOnboarding
         user={user}

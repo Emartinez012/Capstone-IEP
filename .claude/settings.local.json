@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep *)",
+      "Bash(git -C \"C:/Users/Towel/Documents/GitHub/Capstone-IEP\" show HEAD:server/routes/plans.js)",
+      "Bash(git -C \"C:/Users/Towel/Documents/GitHub/Capstone-IEP\" log --oneline --all --grep=\"schema\\\\|table\\\\|CREATE\")",
+      "Bash(git -C \"C:/Users/Towel/Documents/GitHub/Capstone-IEP\" log --oneline -- server/db.js server/seed.js)",
+      "Bash(git -C \"C:/Users/Towel/Documents/GitHub/Capstone-IEP\" show 7169ec4:server/seed.js)",
+      "Bash(git -C \"C:/Users/Towel/Documents/GitHub/Capstone-IEP\" show f284488:server/seed.js)",
+      "Bash(git *)",
+      "Bash(find . -type f \\\\\\( -name \"*.js\" -o -name \"*.sql\" -o -name \"*schema*\" \\\\\\) -exec grep -l \"schedule_status_type\\\\|user_role_type\\\\|student_status_type\\\\|substitution_status_type\" {} \\\\;)"
+    ]
+  }
+}

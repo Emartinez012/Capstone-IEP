@@ -1,0 +1,836 @@
+-- Connection Profile: admin/iep_engine
+-- PostgreSQL version: PostgreSQL 15.16 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+
+CREATE EXTENSION IF NOT EXISTS plpgsql;
+
+CREATE EXTENSION IF NOT EXISTS uuid-ossp;
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE SCHEMA "public";
+
+CREATE TABLE "public"."academic_history" (
+    history_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    user_id uuid,
+    course_code character varying(20),
+    term_taken character varying(20),
+    grade character(2),
+    credits_earned integer,
+    is_transfer boolean DEFAULT false,
+    deleted_at timestamp without time zone,
+    CONSTRAINT academic_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id),
+    CONSTRAINT academic_history_course_code_fkey FOREIGN KEY (course_code) REFERENCES courses(course_code),
+    CONSTRAINT academic_history_pkey PRIMARY KEY (history_id)
+);
+
+CREATE TABLE "public"."advisor_profiles" (
+    user_id uuid NOT NULL,
+    dept_id uuid NOT NULL,
+    max_student_load integer DEFAULT 50,
+    is_accepting_students boolean DEFAULT true,
+    CONSTRAINT advisor_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id),
+    CONSTRAINT advisor_profiles_dept_id_fkey FOREIGN KEY (dept_id) REFERENCES departments(dept_id),
+    CONSTRAINT advisor_profiles_pkey PRIMARY KEY (user_id)
+);
+
+CREATE TABLE "public"."advisor_program_assignments" (
+    advisor_user_id uuid NOT NULL,
+    degree_code character varying(50) NOT NULL,
+    assigned_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT advisor_program_assignments_advisor_user_id_fkey FOREIGN KEY (advisor_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT advisor_program_assignments_degree_code_fkey FOREIGN KEY (degree_code) REFERENCES degree_programs(degree_code) ON DELETE CASCADE,
+    CONSTRAINT advisor_program_assignments_pkey PRIMARY KEY (advisor_user_id, degree_code)
+);
+
+CREATE TABLE "public"."audit_logs" (
+    log_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    user_id uuid,
+    action_type character varying(50) NOT NULL,
+    target_table character varying(50),
+    target_record_id uuid,
+    old_value jsonb,
+    new_value jsonb,
+    ip_address inet,
+    event_time timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT audit_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id),
+    CONSTRAINT audit_logs_pkey PRIMARY KEY (log_id)
+);
+
+CREATE MATERIALIZED VIEW "public"."course_demand_forecast" AS
+ SELECT si.semester_term,
+    si.semester_year,
+    si.course_code,
+    c.title,
+    count(si.item_id) AS student_demand_count,
+    jsonb_object_agg(si.assigned_modality, 1) AS modality_breakdown
+   FROM schedule_items si
+     JOIN generated_schedules gs ON si.schedule_id = gs.schedule_id
+     JOIN courses c ON si.course_code::text = c.course_code::text
+  WHERE gs.status = 'Official'::schedule_status_type AND gs.deleted_at IS NULL
+  GROUP BY si.semester_term, si.semester_year, si.course_code, c.title; WITH DATA;
+
+CREATE TABLE "public"."course_sections" (
+    section_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    course_code character varying(20) NOT NULL,
+    semester_term character varying(20) NOT NULL,
+    semester_year integer NOT NULL,
+    modality character varying(50) NOT NULL,
+    duration_weeks integer NOT NULL,
+    days_of_week character varying(20),
+    start_time time without time zone,
+    end_time time without time zone,
+    capacity integer DEFAULT 30,
+    CONSTRAINT course_sections_course_code_fkey FOREIGN KEY (course_code) REFERENCES courses(course_code) ON DELETE CASCADE,
+    CONSTRAINT course_sections_pkey PRIMARY KEY (section_id)
+);
+
+CREATE TABLE "public"."course_substitutions" (
+    substitution_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    model_id uuid,
+    required_course_code character varying(20),
+    external_course_id character varying(50),
+    institution_name character varying(255),
+    deleted_at timestamp without time zone,
+    student_user_id uuid,
+    substitution_status substitution_status_type DEFAULT 'Pending'::substitution_status_type,
+    assigned_reviewer_id uuid,
+    reviewer_comments text,
+    submitted_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    review_date timestamp without time zone,
+    CONSTRAINT course_substitutions_model_id_fkey FOREIGN KEY (model_id) REFERENCES degree_models(model_id),
+    CONSTRAINT course_substitutions_required_course_code_fkey FOREIGN KEY (required_course_code) REFERENCES courses(course_code),
+    CONSTRAINT course_substitutions_student_user_id_fkey FOREIGN KEY (student_user_id) REFERENCES users(user_id),
+    CONSTRAINT course_substitutions_assigned_reviewer_id_fkey FOREIGN KEY (assigned_reviewer_id) REFERENCES users(user_id),
+    CONSTRAINT course_substitutions_pkey PRIMARY KEY (substitution_id)
+);
+
+CREATE TABLE "public"."courses" (
+    course_code character varying(20) NOT NULL,
+    title character varying(255) NOT NULL,
+    credits integer NOT NULL,
+    description text,
+    deleted_at timestamp without time zone,
+    prerequisite_codes text,
+    corequisite_codes text,
+    CONSTRAINT courses_pkey PRIMARY KEY (course_code)
+);
+
+CREATE TABLE "public"."degree_models" (
+    model_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    total_credits_required integer NOT NULL,
+    is_published boolean DEFAULT false,
+    version_number integer DEFAULT 1,
+    created_by uuid,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    deleted_at timestamp without time zone,
+    degree_code character varying(50),
+    effective_term character varying(20),
+    CONSTRAINT degree_models_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(user_id),
+    CONSTRAINT degree_models_degree_code_fkey FOREIGN KEY (degree_code) REFERENCES degree_programs(degree_code) ON DELETE CASCADE,
+    CONSTRAINT degree_models_pkey PRIMARY KEY (model_id)
+);
+
+CREATE TABLE "public"."degree_programs" (
+    degree_code character varying(50) NOT NULL,
+    program_name character varying(255) NOT NULL,
+    department_name character varying(255),
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    dept_id uuid,
+    CONSTRAINT degree_programs_dept_id_fkey FOREIGN KEY (dept_id) REFERENCES departments(dept_id),
+    CONSTRAINT degree_programs_pkey PRIMARY KEY (degree_code)
+);
+
+CREATE TABLE "public"."degree_requirements" (
+    requirement_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    model_id uuid,
+    course_code character varying(20),
+    priority_value integer NOT NULL,
+    is_wildcard boolean DEFAULT false,
+    deleted_at timestamp without time zone,
+    CONSTRAINT degree_requirements_model_id_fkey FOREIGN KEY (model_id) REFERENCES degree_models(model_id) ON DELETE CASCADE,
+    CONSTRAINT degree_requirements_course_code_fkey FOREIGN KEY (course_code) REFERENCES courses(course_code),
+    CONSTRAINT degree_requirements_pkey PRIMARY KEY (requirement_id)
+);
+
+CREATE TABLE "public"."departments" (
+    dept_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    dept_name character varying(255) NOT NULL,
+    chairperson_id uuid,
+    CONSTRAINT departments_chairperson_fkey FOREIGN KEY (chairperson_id) REFERENCES users(user_id),
+    CONSTRAINT departments_pkey PRIMARY KEY (dept_id)
+);
+
+CREATE TABLE "public"."generated_schedules" (
+    schedule_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    student_user_id uuid,
+    status schedule_status_type DEFAULT 'Temporary'::schedule_status_type,
+    projected_graduation_term character varying(20),
+    version_number integer DEFAULT 1,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    deleted_at timestamp without time zone,
+    generated_by_user_id uuid,
+    CONSTRAINT generated_schedules_student_user_id_fkey FOREIGN KEY (student_user_id) REFERENCES users(user_id),
+    CONSTRAINT generated_schedules_generated_by_fkey FOREIGN KEY (generated_by_user_id) REFERENCES users(user_id),
+    CONSTRAINT generated_schedules_pkey PRIMARY KEY (schedule_id)
+);
+
+CREATE TABLE "public"."iep_snapshots" (
+    snapshot_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    schedule_id uuid,
+    snapshot_data jsonb NOT NULL,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT iep_snapshots_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES generated_schedules(schedule_id),
+    CONSTRAINT iep_snapshots_pkey PRIMARY KEY (snapshot_id)
+);
+
+CREATE TABLE "public"."iep_status_history" (
+    history_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    schedule_id uuid,
+    old_status schedule_status_type,
+    new_status schedule_status_type NOT NULL,
+    changed_by_user_id uuid,
+    change_reason text,
+    changed_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT iep_status_history_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES generated_schedules(schedule_id) ON DELETE CASCADE,
+    CONSTRAINT iep_status_history_changed_by_user_id_fkey FOREIGN KEY (changed_by_user_id) REFERENCES users(user_id),
+    CONSTRAINT iep_status_history_pkey PRIMARY KEY (history_id)
+);
+
+CREATE TABLE "public"."permissions" (
+    permission_id integer DEFAULT nextval('permissions_permission_id_seq'::regclass) NOT NULL,
+    permission_name character varying(50) NOT NULL,
+    description text,
+    CONSTRAINT permissions_pkey PRIMARY KEY (permission_id),
+    CONSTRAINT permissions_permission_name_key UNIQUE (permission_name)
+);
+
+CREATE TABLE "public"."requirement_levels" (
+    requirement_id uuid NOT NULL,
+    level_value integer NOT NULL,
+    CONSTRAINT requirement_levels_requirement_id_fkey FOREIGN KEY (requirement_id) REFERENCES degree_requirements(requirement_id) ON DELETE CASCADE,
+    CONSTRAINT requirement_levels_pkey PRIMARY KEY (requirement_id, level_value)
+);
+
+CREATE TABLE "public"."role_permissions" (
+    role user_role_type NOT NULL,
+    permission_id integer NOT NULL,
+    CONSTRAINT role_permissions_permission_id_fkey FOREIGN KEY (permission_id) REFERENCES permissions(permission_id),
+    CONSTRAINT role_permissions_pkey PRIMARY KEY (role, permission_id)
+);
+
+CREATE TABLE "public"."schedule_items" (
+    item_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    schedule_id uuid,
+    course_code character varying(20),
+    semester_term character varying(20),
+    semester_year integer,
+    assigned_modality character varying(50),
+    deleted_at timestamp without time zone,
+    section_id uuid,
+    CONSTRAINT schedule_items_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES generated_schedules(schedule_id) ON DELETE CASCADE,
+    CONSTRAINT schedule_items_course_code_fkey FOREIGN KEY (course_code) REFERENCES courses(course_code),
+    CONSTRAINT schedule_items_section_id_fkey FOREIGN KEY (section_id) REFERENCES course_sections(section_id) ON DELETE SET NULL,
+    CONSTRAINT schedule_items_pkey PRIMARY KEY (item_id)
+);
+
+CREATE TABLE "public"."student_profiles" (
+    user_id uuid NOT NULL,
+    student_id character varying(50) NOT NULL,
+    status student_status_type DEFAULT 'Active'::student_status_type,
+    current_degree_model_id uuid,
+    courses_per_semester integer DEFAULT 3,
+    preferred_modality jsonb,
+    opt_out_summer boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    deleted_at timestamp without time zone,
+    degree_code character varying(50),
+    preferred_campus_location character varying(100),
+    preferred_time_slot jsonb,
+    academic_standing character varying(50),
+    expected_graduation_date date,
+    is_currently_enrolled boolean DEFAULT false,
+    target_credits integer DEFAULT 12,
+    preferred_term_durations jsonb,
+    assigned_advisor_id uuid,
+    CONSTRAINT student_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id),
+    CONSTRAINT student_profiles_current_degree_model_id_fkey FOREIGN KEY (current_degree_model_id) REFERENCES degree_models(model_id),
+    CONSTRAINT student_profiles_degree_code_fkey FOREIGN KEY (degree_code) REFERENCES degree_programs(degree_code),
+    CONSTRAINT student_profiles_assigned_advisor_fkey FOREIGN KEY (assigned_advisor_id) REFERENCES users(user_id),
+    CONSTRAINT student_profiles_pkey PRIMARY KEY (user_id),
+    CONSTRAINT student_profiles_student_id_key UNIQUE (student_id)
+);
+
+CREATE TABLE "public"."user_sessions" (
+    session_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    user_id uuid,
+    token_hash character varying(255) NOT NULL,
+    ip_address inet,
+    user_agent text,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    expires_at timestamp without time zone NOT NULL,
+    is_revoked boolean DEFAULT false,
+    CONSTRAINT user_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    CONSTRAINT user_sessions_pkey PRIMARY KEY (session_id)
+);
+
+CREATE TABLE "public"."users" (
+    user_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+    email character varying(255) NOT NULL,
+    password_hash character varying(255) NOT NULL,
+    first_name character varying(100) NOT NULL,
+    last_name character varying(100) NOT NULL,
+    role user_role_type NOT NULL,
+    is_active boolean DEFAULT true,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    deleted_at timestamp without time zone,
+    phone_number character varying(20),
+    address text,
+    CONSTRAINT users_pkey PRIMARY KEY (user_id),
+    CONSTRAINT users_email_key UNIQUE (email)
+);
+
+CREATE OR REPLACE VIEW "public"."v_substitution_queue" AS
+ SELECT cs.substitution_id,
+    cs.substitution_status,
+    s_user.first_name AS student_first_name,
+    s_user.last_name AS student_last_name,
+    cs.required_course_code,
+    cs.external_course_id,
+    cs.institution_name,
+    cs.submitted_at,
+    a_user.first_name AS reviewer_first_name,
+    a_user.last_name AS reviewer_last_name
+   FROM course_substitutions cs
+     LEFT JOIN users s_user ON cs.student_user_id = s_user.user_id
+     LEFT JOIN users a_user ON cs.assigned_reviewer_id = a_user.user_id;;
+
+CREATE SEQUENCE "public"."permissions_permission_id_seq"
+    START WITH 1
+    INCREMENT BY 1
+    MINVALUE 1
+    MAXVALUE 2147483647
+    NO CYCLE;
+
+CREATE UNIQUE INDEX users_pkey ON public.users USING btree (user_id);
+
+CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email);
+
+CREATE UNIQUE INDEX permissions_pkey ON public.permissions USING btree (permission_id);
+
+CREATE UNIQUE INDEX permissions_permission_name_key ON public.permissions USING btree (permission_name);
+
+CREATE UNIQUE INDEX role_permissions_pkey ON public.role_permissions USING btree (role, permission_id);
+
+CREATE UNIQUE INDEX user_sessions_pkey ON public.user_sessions USING btree (session_id);
+
+CREATE UNIQUE INDEX audit_logs_pkey ON public.audit_logs USING btree (log_id);
+
+CREATE UNIQUE INDEX degree_models_pkey ON public.degree_models USING btree (model_id);
+
+CREATE UNIQUE INDEX courses_pkey ON public.courses USING btree (course_code);
+
+CREATE UNIQUE INDEX degree_requirements_pkey ON public.degree_requirements USING btree (requirement_id);
+
+CREATE UNIQUE INDEX requirement_levels_pkey ON public.requirement_levels USING btree (requirement_id, level_value);
+
+CREATE UNIQUE INDEX course_substitutions_pkey ON public.course_substitutions USING btree (substitution_id);
+
+CREATE UNIQUE INDEX student_profiles_pkey ON public.student_profiles USING btree (user_id);
+
+CREATE UNIQUE INDEX student_profiles_student_id_key ON public.student_profiles USING btree (student_id);
+
+CREATE UNIQUE INDEX academic_history_pkey ON public.academic_history USING btree (history_id);
+
+CREATE UNIQUE INDEX generated_schedules_pkey ON public.generated_schedules USING btree (schedule_id);
+
+CREATE UNIQUE INDEX schedule_items_pkey ON public.schedule_items USING btree (item_id);
+
+CREATE UNIQUE INDEX iep_status_history_pkey ON public.iep_status_history USING btree (history_id);
+
+CREATE UNIQUE INDEX iep_snapshots_pkey ON public.iep_snapshots USING btree (snapshot_id);
+
+CREATE INDEX idx_forecast_term ON public.course_demand_forecast USING btree (semester_term, semester_year);
+
+CREATE UNIQUE INDEX degree_programs_pkey ON public.degree_programs USING btree (degree_code);
+
+CREATE UNIQUE INDEX advisor_program_assignments_pkey ON public.advisor_program_assignments USING btree (advisor_user_id, degree_code);
+
+CREATE UNIQUE INDEX course_sections_pkey ON public.course_sections USING btree (section_id);
+
+CREATE UNIQUE INDEX departments_pkey ON public.departments USING btree (dept_id);
+
+CREATE UNIQUE INDEX advisor_profiles_pkey ON public.advisor_profiles USING btree (user_id);
+
+-- Extension: pgcrypto
+
+CREATE OR REPLACE FUNCTION public.digest(text, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_digest$function$
+
+
+CREATE OR REPLACE FUNCTION public.digest(bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_digest$function$
+
+
+CREATE OR REPLACE FUNCTION public.hmac(text, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_hmac$function$
+
+
+CREATE OR REPLACE FUNCTION public.hmac(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_hmac$function$
+
+
+CREATE OR REPLACE FUNCTION public.crypt(text, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_crypt$function$
+
+
+CREATE OR REPLACE FUNCTION public.gen_salt(text)
+ RETURNS text
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_gen_salt$function$
+
+
+CREATE OR REPLACE FUNCTION public.gen_salt(text, integer)
+ RETURNS text
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_gen_salt_rounds$function$
+
+
+CREATE OR REPLACE FUNCTION public.encrypt(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_encrypt$function$
+
+
+CREATE OR REPLACE FUNCTION public.decrypt(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_decrypt$function$
+
+
+CREATE OR REPLACE FUNCTION public.encrypt_iv(bytea, bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_encrypt_iv$function$
+
+
+CREATE OR REPLACE FUNCTION public.decrypt_iv(bytea, bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_decrypt_iv$function$
+
+
+CREATE OR REPLACE FUNCTION public.gen_random_bytes(integer)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_random_bytes$function$
+
+
+CREATE OR REPLACE FUNCTION public.gen_random_uuid()
+ RETURNS uuid
+ LANGUAGE c
+ PARALLEL SAFE
+AS '$libdir/pgcrypto', $function$pg_random_uuid$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt_bytea(bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_bytea$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt_bytea(bytea, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_bytea$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt(bytea, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt_bytea(bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt(bytea, text, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt_bytea(bytea, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea, text, text)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_key_id(bytea)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_key_id_w$function$
+
+
+CREATE OR REPLACE FUNCTION public.armor(bytea)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_armor$function$
+
+
+CREATE OR REPLACE FUNCTION public.armor(bytea, text[], text[])
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_armor$function$
+
+
+CREATE OR REPLACE FUNCTION public.dearmor(text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_dearmor$function$
+
+
+CREATE OR REPLACE FUNCTION public.pgp_armor_headers(text, OUT key text, OUT value text)
+ RETURNS SETOF record
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_armor_headers$function$
+
+
+-- Extension: uuid-ossp
+
+CREATE OR REPLACE FUNCTION public.uuid_nil()
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_nil$function$
+
+
+CREATE OR REPLACE FUNCTION public.uuid_ns_dns()
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_ns_dns$function$
+
+
+CREATE OR REPLACE FUNCTION public.uuid_ns_url()
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_ns_url$function$
+
+
+CREATE OR REPLACE FUNCTION public.uuid_ns_oid()
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_ns_oid$function$
+
+
+CREATE OR REPLACE FUNCTION public.uuid_ns_x500()
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_ns_x500$function$
+
+
+CREATE OR REPLACE FUNCTION public.uuid_generate_v1()
+ RETURNS uuid
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_generate_v1$function$
+
+
+CREATE OR REPLACE FUNCTION public.uuid_generate_v1mc()
+ RETURNS uuid
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_generate_v1mc$function$
+
+
+CREATE OR REPLACE FUNCTION public.uuid_generate_v3(namespace uuid, name text)
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_generate_v3$function$
+
+
+CREATE OR REPLACE FUNCTION public.uuid_generate_v4()
+ RETURNS uuid
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_generate_v4$function$
+
+
+CREATE OR REPLACE FUNCTION public.uuid_generate_v5(namespace uuid, name text)
+ RETURNS uuid
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/uuid-ossp', $function$uuid_generate_v5$function$
+
+
+GRANT USAGE, CREATE ON SCHEMA "public" TO pg_database_owner;
+
+GRANT USAGE ON SCHEMA "public" TO PUBLIC;
+
+ALTER TABLE "public"."degree_requirements" OWNER TO admin;
+
+ALTER TABLE "public"."permissions" OWNER TO admin;
+
+ALTER TABLE "public"."role_permissions" OWNER TO admin;
+
+ALTER TABLE "public"."student_profiles" OWNER TO admin;
+
+ALTER TABLE "public"."user_sessions" OWNER TO admin;
+
+ALTER TABLE "public"."audit_logs" OWNER TO admin;
+
+ALTER TABLE "public"."users" OWNER TO admin;
+
+ALTER TABLE "public"."requirement_levels" OWNER TO admin;
+
+ALTER TABLE "public"."courses" OWNER TO admin;
+
+ALTER TABLE "public"."course_substitutions" OWNER TO admin;
+
+ALTER TABLE "public"."academic_history" OWNER TO admin;
+
+ALTER TABLE "public"."iep_status_history" OWNER TO admin;
+
+ALTER TABLE "public"."schedule_items" OWNER TO admin;
+
+ALTER TABLE "public"."iep_snapshots" OWNER TO admin;
+
+ALTER TABLE "public"."generated_schedules" OWNER TO admin;
+
+ALTER MATERIALIZED VIEW "public"."course_demand_forecast" OWNER TO admin;
+
+ALTER TABLE "public"."degree_models" OWNER TO admin;
+
+ALTER TABLE "public"."advisor_program_assignments" OWNER TO admin;
+
+ALTER VIEW "public"."v_substitution_queue" OWNER TO admin;
+
+ALTER TABLE "public"."course_sections" OWNER TO admin;
+
+ALTER TABLE "public"."departments" OWNER TO admin;
+
+ALTER TABLE "public"."degree_programs" OWNER TO admin;
+
+ALTER TABLE "public"."advisor_profiles" OWNER TO admin;
+
+ALTER SEQUENCE "public"."permissions_permission_id_seq" OWNER TO admin;
+
+ALTER FUNCTION "public"."uuid_nil"() OWNER TO admin;
+
+ALTER FUNCTION "public"."uuid_ns_dns"() OWNER TO admin;
+
+ALTER FUNCTION "public"."uuid_ns_url"() OWNER TO admin;
+
+ALTER FUNCTION "public"."uuid_ns_oid"() OWNER TO admin;
+
+ALTER FUNCTION "public"."uuid_ns_x500"() OWNER TO admin;
+
+ALTER FUNCTION "public"."uuid_generate_v1"() OWNER TO admin;
+
+ALTER FUNCTION "public"."uuid_generate_v1mc"() OWNER TO admin;
+
+ALTER FUNCTION "public"."uuid_generate_v3"(namespace uuid, name text) OWNER TO admin;
+
+ALTER FUNCTION "public"."uuid_generate_v4"() OWNER TO admin;
+
+ALTER FUNCTION "public"."uuid_generate_v5"(namespace uuid, name text) OWNER TO admin;
+
+ALTER FUNCTION "public"."digest"(text, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."digest"(bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."hmac"(text, text, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."hmac"(bytea, bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."crypt"(text, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."gen_salt"(text) OWNER TO admin;
+
+ALTER FUNCTION "public"."gen_salt"(text, integer) OWNER TO admin;
+
+ALTER FUNCTION "public"."encrypt"(bytea, bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."decrypt"(bytea, bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."encrypt_iv"(bytea, bytea, bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."decrypt_iv"(bytea, bytea, bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."gen_random_bytes"(integer) OWNER TO admin;
+
+ALTER FUNCTION "public"."gen_random_uuid"() OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_sym_encrypt"(text, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_sym_encrypt_bytea"(bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_sym_encrypt"(text, text, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_sym_encrypt_bytea"(bytea, text, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_sym_decrypt"(bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_sym_decrypt_bytea"(bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_sym_decrypt"(bytea, text, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_sym_decrypt_bytea"(bytea, text, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_pub_encrypt"(text, bytea) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_pub_encrypt_bytea"(bytea, bytea) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_pub_encrypt"(text, bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_pub_encrypt_bytea"(bytea, bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_pub_decrypt"(bytea, bytea) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_pub_decrypt_bytea"(bytea, bytea) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_pub_decrypt"(bytea, bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_pub_decrypt_bytea"(bytea, bytea, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_pub_decrypt"(bytea, bytea, text, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_pub_decrypt_bytea"(bytea, bytea, text, text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_key_id"(bytea) OWNER TO admin;
+
+ALTER FUNCTION "public"."armor"(bytea) OWNER TO admin;
+
+ALTER FUNCTION "public"."armor"(bytea, text[], text[]) OWNER TO admin;
+
+ALTER FUNCTION "public"."dearmor"(text) OWNER TO admin;
+
+ALTER FUNCTION "public"."pgp_armor_headers"(text, OUT key text, OUT value text) OWNER TO admin;
+
+ALTER SCHEMA "public" OWNER TO pg_database_owner;

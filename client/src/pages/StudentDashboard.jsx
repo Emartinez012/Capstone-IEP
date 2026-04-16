@@ -28,13 +28,13 @@ export default function StudentDashboard({ user, onSignOut }) {
   const [generating, setGenerating] = useState(false);
   const [error,      setError]      = useState('');
 
-  useEffect(() => { fetchPlan(); }, [user.student_id]);
+  useEffect(() => { fetchPlan(); }, [user.id]);
 
   async function fetchPlan() {
     setLoading(true);
     setError('');
     try {
-      const data = await getPlan(user.student_id);
+      const data = await getPlan(user.id);
       setPlan(data ? data.plan : null);
     } catch {
       setError('Could not load your plan. Please try again.');
@@ -47,7 +47,7 @@ export default function StudentDashboard({ user, onSignOut }) {
     setGenerating(true);
     setError('');
     try {
-      const data = await generatePlan(user.student_id);
+      const data = await generatePlan(user.id);
       setPlan(data.plan);
     } catch {
       setError('Could not regenerate your plan. Please try again.');
@@ -128,18 +128,18 @@ export default function StudentDashboard({ user, onSignOut }) {
         {!loading && plan && plan.length > 0 && (
           <div className="semester-grid">
             {plan.map(sem => (
-              <div key={sem.semester_number} className="semester-card">
+              <div key={sem.semester} className="semester-card">
                 <div className="semester-header">
-                  <span className="semester-number">Semester {sem.semester_number}</span>
+                  <span className="semester-number">Semester {sem.semester}</span>
                   <span className={`semester-term ${termClass(sem.term_code)}`}>
                     {termCodeToLabel(sem.term_code)}
                   </span>
                 </div>
                 <ul className="course-list">
                   {sem.courses.map(c => (
-                    <li key={c.course_id} className="course-item">
+                    <li key={c.course_code} className="course-item">
                       <span className="course-code">{c.course_code}</span>
-                      <span className="course-name">{c.course_name}</span>
+                      <span className="course-name">{c.title}</span>
                     </li>
                   ))}
                 </ul>

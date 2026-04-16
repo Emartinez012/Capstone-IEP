@@ -21,14 +21,14 @@ export async function getStudentById(id) {
 }
 
 export async function updateStudentProfile(studentId, data) {
-  // Ensure the URL matches your express route. If it's a PUT to /api/students/:id
   const res = await fetch(`${BASE}/students/${studentId}`, {
     method:  'PUT',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(data)
   });
-  if (!res.ok) throw new Error('Failed to save profile');
-  return res.json();
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Failed to save profile');
+  return body;
 }
 
 // --- Majors ------------------------------------------------------------------
@@ -39,13 +39,20 @@ export async function getMajors() {
   return res.json();
 }
 
+export async function getDegreeCourses(degreeCode) {
+  const res = await fetch(`${BASE}/majors/${degreeCode}/model`);
+  if (!res.ok) throw new Error('Failed to fetch degree courses');
+  return res.json(); // [{course_code, course_name, priority_index, ...}]
+}
+
 // --- Plans -------------------------------------------------------------------
 
 // Runs the scheduling algorithm, saves the result, and returns the grouped plan.
 export async function generatePlan(studentId) {
   const res = await fetch(`${BASE}/plans/generate/${studentId}`, { method: 'POST' });
-  if (!res.ok) throw new Error('Failed to generate plan');
-  return res.json();
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Failed to generate plan');
+  return body;
 }
 
 // Returns the saved plan for a student, or null if none has been generated yet.

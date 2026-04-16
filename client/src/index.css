@@ -1253,6 +1253,117 @@ body {
   text-align: center;
 }
 
+/* Sub-label within a step (e.g. "Credits per semester", "Term duration") */
+.ob-sub-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+  margin-bottom: 10px;
+  margin-top: 4px;
+}
+
+/* Horizontal rule between sections within one step */
+.ob-section-divider {
+  border: none;
+  border-top: 1px solid #e8edf5;
+  margin: 20px 0;
+}
+
+/* Summer opt-out / toggle row */
+.ob-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #444;
+  cursor: pointer;
+  margin-top: 4px;
+  user-select: none;
+}
+
+.ob-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #2e5496;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Time block sub-group (shown after period card selection) */
+.ob-time-period-section { margin-top: 16px; }
+
+.ob-time-period-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 8px;
+}
+
+.ob-time-block-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Transfer student course checklist */
+.ob-course-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 8px;
+  border: 1.5px solid #d0d8e4;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.ob-course-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  font-size: 13px;
+}
+
+.ob-course-item:hover { background: #f0f4fb; }
+
+.ob-course-item input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #2e5496;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.ob-course-code {
+  font-weight: 600;
+  color: #2e5496;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.ob-course-name { color: #555; }
+
+.ob-selected-count {
+  font-size: 12px;
+  color: #2e5496;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.ob-loading {
+  font-size: 13px;
+  color: #888;
+  font-style: italic;
+  margin-top: 8px;
+}
+
 /* =============================================================
    Student Dashboard  (StudentDashboard.jsx)
    ============================================================= */

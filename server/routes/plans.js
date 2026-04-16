@@ -1,130 +1,167 @@
 // =============================================================================
-// routes/plans.js (PostgreSQL Adapter) - IRONCLAD ARRAY FIX
+// server/routes/plans.js
 // =============================================================================
 const express    = require('express');
 const db         = require('../db');
 const { createPlan } = require('../algorithm/planAlgorithm');
-const router = express.Router();
+const router     = express.Router();
 
-async function getStoredPlan(studentId) {
-    const result = await db.query(`
-        SELECT si.semester_year AS semester_number, si.semester_term AS term_code, si.course_code AS course_id, 
-               si.course_code, c.title AS course_name
-        FROM schedule_items si
-        JOIN generated_schedules gs ON si.schedule_id = gs.schedule_id
-        JOIN courses c ON si.course_code = c.course_code
-        WHERE gs.student_user_id = $1 AND gs.status = 'Official'
-        ORDER BY si.semester_year ASC
-    `, [studentId]);
-
-    // Force array
-    let rows = [];
-    if (result && Array.isArray(result.rows)) rows = result.rows;
-    else if (Array.isArray(result)) rows = result;
-
-    const semestersMap = new Map();
-    rows.forEach(row => {
-        if (!semestersMap.has(row.semester_number)) {
-            semestersMap.set(row.semester_number, {
-                semester_number: row.semester_number, term_code: row.term_code, courses: []
-            });
-        }
-        semestersMap.get(row.semester_number).courses.push(row);
-    });
-    return Array.from(semestersMap.values()).sort((a, b) => a.semester_number - b.semester_number);
-}
-
+// POST /api/plans/generate/:studentId
+// Generates and saves a new degree plan for a student.
 router.post('/generate/:studentId', async (req, res) => {
     const studentId = req.params.studentId;
     try {
-        // 1. Get Student Profile
+        // 1. Get student profile (needs current_degree_model_id and starting_term)
         const studentRes = await db.query(
-            'SELECT user_id AS id, courses_per_semester FROM student_profiles WHERE user_id = $1', 
+            `SELECT user_id AS id, target_credits, starting_term, opt_out_summer, current_degree_model_id
+             FROM student_profiles WHERE user_id = $1`,
             [studentId]
         );
-        let studentProfile = null;
-        if (studentRes && Array.isArray(studentRes.rows) && studentRes.rows.length > 0) studentProfile = studentRes.rows[0];
-        else if (Array.isArray(studentRes) && studentRes.length > 0) studentProfile = studentRes[0];
-        
-        if (!studentProfile) return res.status(404).json({ error: 'Student not found.' });
-
-        // 2. Get Academic History (IRONCLAD ARRAY CHECK)
-        let historyData = [];
-        const historyRes = await db.query('SELECT course_code AS course_id FROM academic_history WHERE user_id = $1', [studentId]);
-        if (historyRes && Array.isArray(historyRes.rows)) {
-            historyData = historyRes.rows;
-        } else if (Array.isArray(historyRes)) {
-            historyData = historyRes;
+        if (!studentRes.rows.length) {
+            return res.status(404).json({ error: 'Student not found.' });
         }
-        
-        // 3. Get Course Model (IRONCLAD ARRAY CHECK)
-        let modelData = [];
-        const modelRes = await db.query(`
-            SELECT 
-                1 AS priority_index, 
-                1 AS levels, 
-                course_code AS course_id, 
-                course_code 
-            FROM courses
-        `);
-        if (modelRes && Array.isArray(modelRes.rows)) {
-            modelData = modelRes.rows;
-        } else if (Array.isArray(modelRes)) {
-            modelData = modelRes;
+        const student = studentRes.rows[0];
+
+        if (!student.current_degree_model_id) {
+            return res.status(400).json({ error: 'Student has no degree model assigned. Complete onboarding first.' });
         }
 
-        // 4. Run the Plan Algorithm (Safely passing guaranteed arrays)
-        const planEntries = createPlan(studentProfile, historyData, modelData);
-        
-        if (!planEntries || !Array.isArray(planEntries) || planEntries.length === 0) {
-            return res.json({ student_id: studentId, semesters_count: 0, plan: [] });
+        // 2. Get academic history
+        const historyRes = await db.query(
+            `SELECT course_code FROM academic_history WHERE user_id = $1 AND deleted_at IS NULL`,
+            [studentId]
+        );
+        const history = historyRes.rows;
+
+        // 3. Get degree model courses with prerequisites and priority
+        const modelRes = await db.query(
+            `SELECT c.course_code, c.credits, c.prerequisite_codes, dr.priority_value
+             FROM degree_requirements dr
+             JOIN courses c ON dr.course_code = c.course_code
+             WHERE dr.model_id = $1 AND dr.deleted_at IS NULL
+             ORDER BY dr.priority_value ASC`,
+            [student.current_degree_model_id]
+        );
+        const model = modelRes.rows;
+
+        if (!model.length) {
+            return res.status(400).json({ error: 'Degree model has no courses defined.' });
         }
 
+        // 4. Run the algorithm
+        const planEntries = createPlan(student, history, model);
+
+        if (!planEntries.length) {
+            return res.json({ student_id: studentId, semesters_count: 0, plan: [], graduation_term: null });
+        }
+
+        const graduationTerm = planEntries[planEntries.length - 1].term_code;
+
+        // 5. Save the plan inside a transaction
         const client = await db.getClient();
+        let scheduleId;
         try {
             await client.query('BEGIN');
-            
-            // Delete old schedules safely
-            await client.query("DELETE FROM generated_schedules WHERE student_user_id = $1", [studentId]);
-            
-            // Create new schedule header
-            const headerRes = await client.query(
-                "INSERT INTO generated_schedules (student_user_id, projected_graduation_term, status) VALUES ($1, '261', 'Official') RETURNING schedule_id",
+
+            // Delete previous plan (schedule_items cascade automatically)
+            await client.query(
+                `DELETE FROM generated_schedules WHERE student_user_id = $1`,
                 [studentId]
             );
-            const scheduleId = (headerRes && headerRes.rows) ? headerRes.rows[0].schedule_id : headerRes[0].schedule_id;
 
-            // Insert new schedule items
+            const scheduleRes = await client.query(
+                `INSERT INTO generated_schedules (student_user_id, projected_graduation_term, status)
+                 VALUES ($1, $2, 'Official') RETURNING schedule_id`,
+                [studentId, graduationTerm]
+            );
+            scheduleId = scheduleRes.rows[0].schedule_id;
+
             for (const entry of planEntries) {
                 await client.query(
-                    "INSERT INTO schedule_items (schedule_id, course_code, semester_year, semester_term) VALUES ($1, $2, $3, $4)",
-                    [scheduleId, entry.course_id, entry.semester_number, entry.term_code || '1']
+                    `INSERT INTO schedule_items (schedule_id, course_code, semester_year, semester_term)
+                     VALUES ($1, $2, $3, $4)`,
+                    [scheduleId, entry.course_code, entry.semester_number, entry.term_code]
                 );
             }
+
             await client.query('COMMIT');
         } catch (err) {
             await client.query('ROLLBACK');
-            throw err; 
+            throw err;
         } finally {
             client.release();
         }
 
-        const plan = await getStoredPlan(studentId);
-        res.json({ student_id: studentId, semesters_count: plan.length, plan });
+        // 6. Return grouped plan
+        const plan = groupPlanEntries(planEntries);
+        res.json({ student_id: studentId, semesters_count: plan.length, plan, graduation_term: graduationTerm });
+
     } catch (err) {
-        console.error('Plan Gen Error:', err.message);
+        console.error('Plan Generation Error:', err.message);
         res.status(500).json({ error: 'Failed to generate plan.' });
     }
 });
 
+// GET /api/plans/:studentId
+// Retrieves the most recently saved plan for a student.
 router.get('/:studentId', async (req, res) => {
+    const studentId = req.params.studentId;
     try {
-        const plan = await getStoredPlan(req.params.studentId);
-        if (plan.length === 0) return res.status(404).json({ error: 'No plan found' });
-        res.json({ student_id: req.params.studentId, semesters_count: plan.length, plan });
+        const scheduleRes = await db.query(
+            `SELECT schedule_id, projected_graduation_term
+             FROM generated_schedules
+             WHERE student_user_id = $1 AND deleted_at IS NULL
+             ORDER BY created_at DESC LIMIT 1`,
+            [studentId]
+        );
+
+        if (!scheduleRes.rows.length) {
+            return res.json({ plan: null, graduation_term: null });
+        }
+
+        const { schedule_id, projected_graduation_term } = scheduleRes.rows[0];
+
+        const itemsRes = await db.query(
+            `SELECT si.course_code, si.semester_year, si.semester_term, c.credits, c.title
+             FROM schedule_items si
+             JOIN courses c ON si.course_code = c.course_code
+             WHERE si.schedule_id = $1 AND si.deleted_at IS NULL
+             ORDER BY si.semester_year`,
+            [schedule_id]
+        );
+
+        const rawEntries = itemsRes.rows.map(row => ({
+            course_code: row.course_code,
+            semester_number: row.semester_year,
+            term_code: row.semester_term,
+            credits: row.credits,
+            title: row.title,
+        }));
+
+        const plan = groupPlanEntries(rawEntries);
+        res.json({ plan, graduation_term: projected_graduation_term });
+
     } catch (err) {
-        res.status(500).json({ error: 'Database error' });
+        console.error('Get Plan Error:', err.message);
+        res.status(500).json({ error: 'Failed to retrieve plan.' });
     }
 });
+
+// Groups flat plan entries into semester objects for the frontend.
+function groupPlanEntries(entries) {
+    const grouped = {};
+    for (const entry of entries) {
+        const key = entry.semester_number;
+        if (!grouped[key]) {
+            grouped[key] = { semester: key, term_code: entry.term_code, courses: [] };
+        }
+        grouped[key].courses.push({
+            course_code: entry.course_code,
+            credits: entry.credits,
+            title: entry.title || null,
+        });
+    }
+    return Object.values(grouped);
+}
 
 module.exports = router;

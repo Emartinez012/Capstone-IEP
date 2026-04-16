@@ -1,5 +1,5 @@
 // =============================================================================
-// routes/auth.js - Refactored for PostgreSQL
+// server/routes/auth.js
 // =============================================================================
 const express = require('express');
 const bcrypt  = require('bcryptjs');
@@ -7,71 +7,70 @@ const db      = require('../db');
 const router  = express.Router();
 
 router.post('/signup', async (req, res) => {
-    // Grab student_id if the frontend sends it
-    const { first_name, last_name, email, password, student_id } = req.body;
+    const { first_name, last_name, email, password } = req.body;
 
-    if (!first_name || !last_name || !email || !password) {
-        return res.status(400).json({ error: 'All fields are required.' });
-    }
-
+    const client = await db.getClient();
     try {
-        const password_hash = bcrypt.hashSync(password, 10);
+        await client.query('BEGIN');
 
-        // 1. Create User
-        const userRes = await db.query(
-            `INSERT INTO users (first_name, last_name, email, password_hash, role) 
-             VALUES ($1, $2, $3, $4, 'Student') 
-             RETURNING user_id`,
-            [first_name, last_name, email, password_hash]
-        );
+        const hash = await bcrypt.hash(password, 10);
+
+        const userRes = await client.query(`
+            INSERT INTO users (first_name, last_name, email, password_hash, role)
+            VALUES ($1, $2, $3, $4, 'Student')
+            RETURNING user_id
+        `, [first_name, last_name, email, hash]);
+
         const userId = userRes.rows[0].user_id;
 
-        // Generate a random 8-digit ID if the frontend doesn't provide one
-        const finalStudentId = student_id || Math.floor(10000000 + Math.random() * 90000000).toString();
+        const studentIdString = 'MDC-' + Math.floor(Math.random() * 90000 + 10000);
 
-        // 2. Create Student Profile (Fixed: added student_id)
-        await db.query(
-            `INSERT INTO student_profiles (user_id, student_id, degree_code) 
-             VALUES ($1, $2, $3)`,
-            [userId, finalStudentId, 'BS-SE']
-        );
+        await client.query(`
+            INSERT INTO student_profiles (user_id, student_id, target_credits)
+            VALUES ($1, $2, 12)
+        `, [userId, studentIdString]);
 
-        res.status(201).json({
-            message: 'User created successfully.',
-            user: { id: userId, email, role: 'Student', first_name, last_name }
-        });
+        await client.query('COMMIT');
+
+        res.json({ id: userId, role: 'Student', first_name, last_name, email });
     } catch (err) {
-        console.error(err);
-        if (err.code === '23505') { 
-            return res.status(409).json({ error: 'Email already exists.' });
+        await client.query('ROLLBACK');
+        console.error('Signup Error:', err);
+        if (err.code === '23505') {
+            return res.status(400).json({ error: 'Email already exists.' });
         }
-        res.status(500).json({ error: 'Database error during signup.', detail: err.message });
+        res.status(500).json({ error: 'Failed to create account.' });
+    } finally {
+        client.release();
     }
 });
 
 router.post('/login', async (req, res) => {
     const { email, password } = req.body;
-
     try {
-        const result = await db.query(`SELECT * FROM users WHERE email = $1`, [email]);
-        const user = result.rows[0];
+        const userRes = await db.query(
+            `SELECT u.user_id AS id, u.role, u.first_name, u.last_name, u.password_hash,
+                    sp.degree_code
+             FROM users u
+             LEFT JOIN student_profiles sp ON u.user_id = sp.user_id
+             WHERE u.email = $1 AND u.deleted_at IS NULL`,
+            [email]
+        );
 
-        if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+        if (userRes.rows.length === 0) {
             return res.status(401).json({ error: 'Invalid email or password.' });
         }
 
-        res.json({
-            message: 'Login successful.',
-            user: {
-                id: user.user_id, 
-                email: user.email,
-                role: user.role,
-                first_name: user.first_name,
-                last_name: user.last_name
-            }
-        });
+        const user = userRes.rows[0];
+        const match = await bcrypt.compare(password, user.password_hash);
+        if (!match) {
+            return res.status(401).json({ error: 'Invalid email or password.' });
+        }
+
+        const { password_hash, ...safe } = user;
+        res.json(safe);
     } catch (err) {
-        console.error(err);
+        console.error('Login Error:', err);
         res.status(500).json({ error: 'Database error during login.' });
     }
 });

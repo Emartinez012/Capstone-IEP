@@ -34,7 +34,7 @@ export default function StudentAuth({ onLogin, onSignup, onBack }) {
     setLoading(true);
     try {
       const result = await login(form.email, form.password);
-      onLogin(result.user);
+      onLogin(result);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -57,7 +57,7 @@ export default function StudentAuth({ onLogin, onSignup, onBack }) {
     setLoading(true);
     try {
       const result = await signup(form.firstName, form.lastName, form.email, form.password);
-      onSignup(result.user);
+      onSignup(result);
     } catch (err) {
       setError(err.message);
     } finally {
