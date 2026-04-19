@@ -8,7 +8,22 @@
       "Bash(git -C \"C:/Users/Towel/Documents/GitHub/Capstone-IEP\" show 7169ec4:server/seed.js)",
       "Bash(git -C \"C:/Users/Towel/Documents/GitHub/Capstone-IEP\" show f284488:server/seed.js)",
       "Bash(git *)",
-      "Bash(find . -type f \\\\\\( -name \"*.js\" -o -name \"*.sql\" -o -name \"*schema*\" \\\\\\) -exec grep -l \"schedule_status_type\\\\|user_role_type\\\\|student_status_type\\\\|substitution_status_type\" {} \\\\;)"
+      "Bash(find . -type f \\\\\\( -name \"*.js\" -o -name \"*.sql\" -o -name \"*schema*\" \\\\\\) -exec grep -l \"schedule_status_type\\\\|user_role_type\\\\|student_status_type\\\\|substitution_status_type\" {} \\\\;)",
+      "Bash(docker exec *)",
+      "Bash(docker restart *)",
+      "Bash(curl -s http://localhost:3001/api/faculty/overview)",
+      "Bash(docker-compose build *)",
+      "Bash(docker-compose up *)",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s \"http://localhost:3001/api/faculty/heatmap\")",
+      "Bash(curl -s \"http://localhost:3001/api/faculty/students\")",
+      "Bash(curl -s http://localhost:3001/api/faculty/substitutions)",
+      "Bash(npm run *)",
+      "Bash(cmd /c \"npm run lint 2>&1\")",
+      "Bash(npx eslint *)",
+      "Bash(cmd *)",
+      "Bash(node *)",
+      "Bash(powershell *)"
     ]
   }
 }

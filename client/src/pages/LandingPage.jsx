@@ -56,9 +56,8 @@ export default function LandingPage({ onSelect }) {
             <span className="role-action">Sign In →</span>
           </button>
 
-          {/* Faculty — Coming Soon */}
-          <div className="role-card role-card-disabled">
-            <span className="role-coming-soon">Coming Soon</span>
+          {/* Faculty Staff */}
+          <button className="role-card" onClick={() => onSelect('faculty')}>
             <div className="role-icon-wrap role-icon-faculty">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -67,8 +66,9 @@ export default function LandingPage({ onSelect }) {
               </svg>
             </div>
             <span className="role-label">Faculty Staff</span>
-            <span className="role-desc">Access program analytics and institutional reporting</span>
-          </div>
+            <span className="role-desc">Department analytics, advisor caseloads, and campus utilization</span>
+            <span className="role-action">Sign In →</span>
+          </button>
 
         </div>
       </div>

@@ -55,9 +55,10 @@ const TIME_BLOCKS = {
 };
 
 const WEEKLY_PATTERNS = [
-  { value: 'MWF',  label: 'MWF',         sub: 'Mon / Wed / Fri — 50–75 min' },
-  { value: 'TTh',  label: 'T/Th',        sub: 'Tue / Thu — 75–90 min'       },
-  { value: '',     label: 'No preference', sub: 'Either works'               },
+  { value: 'MWF',  label: 'MWF',           sub: 'Mon / Wed / Fri — 50–75 min' },
+  { value: 'TTh',  label: 'T/Th',          sub: 'Tue / Thu — 75–90 min'       },
+  { value: 'SAT',  label: 'Saturday',       sub: 'Saturday only'               },
+  { value: '',     label: 'No preference',  sub: 'Either works'                },
 ];
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -77,8 +78,9 @@ export default function StudentOnboarding({ user, onComplete }) {
     opt_out_summer:            false,
     preferred_term_durations:  [16],
     preferred_modality:        [],
-    preferred_campus_location: '',
-    preferred_time_slot:       { blocks: [], pattern: '' },
+    preferred_campus_location:  '',
+    secondary_campus_location:  null,
+    preferred_time_slot:        { blocks: [], pattern: '' },
     starting_term:             '261',
     completed_courses:         [],
   });
@@ -330,12 +332,38 @@ export default function StudentOnboarding({ user, onComplete }) {
                   onClick={() => setForm(f => ({
                     ...f,
                     preferred_campus_location: f.preferred_campus_location === campus ? '' : campus,
+                    secondary_campus_location: null,
                   }))}
                 >
                   {campus}
                 </button>
               ))}
             </div>
+
+            {form.preferred_campus_location && (
+              <>
+                <p className="ob-sub-label" style={{ marginTop: 16 }}>
+                  Would you like to choose a secondary campus?
+                </p>
+                <div className="ob-pills ob-pills-lg">
+                  {CAMPUSES.filter(c => c !== form.preferred_campus_location).map(campus => (
+                    <button
+                      key={campus}
+                      className={`ob-pill${form.secondary_campus_location === campus ? ' selected' : ''}`}
+                      onClick={() => setForm(f => ({ ...f, secondary_campus_location: campus }))}
+                    >
+                      {campus}
+                    </button>
+                  ))}
+                  <button
+                    className={`ob-pill${form.secondary_campus_location === null ? ' selected' : ''}`}
+                    onClick={() => setForm(f => ({ ...f, secondary_campus_location: null }))}
+                  >
+                    No
+                  </button>
+                </div>
+              </>
+            )}
 
             <hr className="ob-section-divider" />
 

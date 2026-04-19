@@ -72,6 +72,10 @@ async function seed() {
     console.log('Starting seed...');
     const client = await db.getClient();
     try {
+        // ALTER TYPE ADD VALUE must run outside a transaction to be immediately
+        // visible to subsequent queries on the same connection.
+        await client.query(`ALTER TYPE user_role_type ADD VALUE IF NOT EXISTS 'Faculty'`);
+
         await client.query('BEGIN');
 
         // Add columns that exist in the app but may be missing from the live schema
@@ -172,23 +176,132 @@ async function seed() {
             [studentUserRes.rows[0].user_id, seDegreeCode, seModelId]
         );
 
-        // Advisor: advisor1@mdc.edu / password123
+        // Update student1 with campus & time preferences
+        await client.query(`
+            UPDATE student_profiles SET
+                preferred_campus_location = 'Kendall',
+                preferred_modality        = '["In-Person"]',
+                preferred_time_slot       = '{"blocks":["Morning"],"pattern":"MWF"}'
+            WHERE user_id = $1
+        `, [studentUserRes.rows[0].user_id]);
+
+        // ── Advisor 1: advisor1@mdc.edu — Applied AI (S9520) ─────────────────
         const advisorHash = await bcrypt.hash('password123', 10);
         const advisorUserRes = await client.query(
             `INSERT INTO users (first_name, last_name, email, password_hash, role)
-             VALUES ('Dr', 'Advisor', 'advisor1@mdc.edu', $1, 'Advisor')
+             VALUES ('Maria', 'Sanchez', 'advisor1@mdc.edu', $1, 'Advisor')
              RETURNING user_id`,
             [advisorHash]
         );
+        const advisor1Id = advisorUserRes.rows[0].user_id;
         await client.query(
-            `INSERT INTO advisor_profiles (user_id, dept_id) VALUES ($1, $2)`,
-            [advisorUserRes.rows[0].user_id, deptId]
+            `INSERT INTO advisor_profiles (user_id, dept_id, max_student_load) VALUES ($1, $2, 50)`,
+            [advisor1Id, deptId]
+        );
+        await client.query(
+            `INSERT INTO advisor_program_assignments (advisor_user_id, degree_code) VALUES ($1,$2)`,
+            [advisor1Id, aiDegreeCode]
+        );
+
+        // ── Advisor 2: advisor2@mdc.edu — Software Engineering (S9501) ───────
+        const advisor2UserRes = await client.query(
+            `INSERT INTO users (first_name, last_name, email, password_hash, role)
+             VALUES ('Carlos', 'Reyes', 'advisor2@mdc.edu', $1, 'Advisor')
+             RETURNING user_id`,
+            [advisorHash]
+        );
+        const advisor2Id = advisor2UserRes.rows[0].user_id;
+        await client.query(
+            `INSERT INTO advisor_profiles (user_id, dept_id, max_student_load) VALUES ($1, $2, 50)`,
+            [advisor2Id, deptId]
+        );
+        await client.query(
+            `INSERT INTO advisor_program_assignments (advisor_user_id, degree_code) VALUES ($1,$2)`,
+            [advisor2Id, seDegreeCode]
+        );
+
+        // ── Faculty Chairperson: chair1@mdc.edu / password123 ───────────────
+        const chairHash = await bcrypt.hash('password123', 10);
+        await client.query(
+            `INSERT INTO users (first_name, last_name, email, password_hash, role)
+             VALUES ('Dr. James', 'Rivera', 'chair1@mdc.edu', $1, 'Faculty')
+             RETURNING user_id`,
+            [chairHash]
+        );
+
+        // ── Extra students with varied preferences ───────────────────────────
+        // ── Extra students (auto-assigned by program) ────────────────────────
+        const extraStudents = [
+            { first: 'Sofia',  last: 'Torres',   email: 'student2@mdc.edu', sid: 'MDC-10002',
+              degree: seDegreeCode, modelId: seModelId, credits: 12, term: '261',
+              campus: 'Kendall',   modality: '["In-Person"]',
+              slot: '{"blocks":["Afternoon"],"pattern":"TTh"}' },
+            { first: 'Marcus', last: 'Williams', email: 'student3@mdc.edu', sid: 'MDC-10003',
+              degree: seDegreeCode, modelId: seModelId, credits: 9,  term: '261',
+              campus: 'Wolfson',   modality: '["Blended"]',
+              slot: '{"blocks":["Morning","Afternoon"],"pattern":"MWF"}' },
+            { first: 'Priya',  last: 'Patel',    email: 'student4@mdc.edu', sid: 'MDC-10004',
+              degree: aiDegreeCode, modelId: aiModelId, credits: 12, term: '261',
+              campus: 'Homestead', modality: '["In-Person"]',
+              slot: '{"blocks":["Morning"],"pattern":"MWF"}' },
+            { first: 'Jordan', last: 'Chen',     email: 'student5@mdc.edu', sid: 'MDC-10005',
+              degree: aiDegreeCode, modelId: aiModelId, credits: 15, term: '252',
+              campus: null,        modality: '["Online"]',
+              slot: '{"blocks":["Evening"],"pattern":"MWF"}' },
+            { first: 'Amara',  last: 'Osei',     email: 'student6@mdc.edu', sid: 'MDC-10006',
+              degree: aiDegreeCode, modelId: aiModelId, credits: 12, term: '261',
+              campus: 'North',     modality: '["In-Person","Blended"]',
+              slot: '{"blocks":["Afternoon"],"pattern":"MWF"}' },
+            { first: 'Luis',   last: 'Mendoza',  email: 'student7@mdc.edu', sid: 'MDC-10007',
+              degree: seDegreeCode, modelId: seModelId, credits: 12, term: '261',
+              campus: 'Wolfson',   modality: '["In-Person"]',
+              slot: '{"blocks":["Morning"],"pattern":"TTh"}' },
+        ];
+
+        // Build program → advisor map for auto-assignment
+        const programAdvisorMap = {
+            [seDegreeCode]: advisor2Id,
+            [aiDegreeCode]: advisor1Id,
+        };
+
+        for (const s of extraStudents) {
+            const uRes = await client.query(
+                `INSERT INTO users (first_name, last_name, email, password_hash, role)
+                 VALUES ($1,$2,$3,$4,'Student') RETURNING user_id`,
+                [s.first, s.last, s.email, studentHash]
+            );
+            const uid = uRes.rows[0].user_id;
+            await client.query(
+                `INSERT INTO student_profiles
+                    (user_id, student_id, degree_code, current_degree_model_id,
+                     target_credits, starting_term, opt_out_summer, is_transfer,
+                     preferred_campus_location, preferred_modality, preferred_time_slot,
+                     assigned_advisor_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,false,false,$7,$8::jsonb,$9::jsonb,$10)`,
+                [uid, s.sid, s.degree, s.modelId, s.credits, s.term,
+                 s.campus || null, s.modality, s.slot,
+                 programAdvisorMap[s.degree] || null]
+            );
+        }
+
+        // Auto-assign student1 (SE) to advisor2
+        await client.query(
+            `UPDATE student_profiles SET assigned_advisor_id = $1 WHERE user_id = $2`,
+            [advisor2Id, studentUserRes.rows[0].user_id]
         );
 
         await client.query('COMMIT');
         console.log('Seeding completed successfully!');
-        console.log('  student1@mdc.edu / password123  (S9501 - Software Engineering)');
-        console.log('  advisor1@mdc.edu / password123');
+        console.log('  student1@mdc.edu / password123  (S9501 - Software Engineering, Kendall)');
+        console.log('  student2@mdc.edu / password123  (S9501 - Software Engineering, Kendall)');
+        console.log('  student3@mdc.edu / password123  (S9501 - Software Engineering, Wolfson)');
+        console.log('  student4@mdc.edu / password123  (S9520 - Applied AI, Homestead)');
+        console.log('  student5@mdc.edu / password123  (S9520 - Applied AI, Online)');
+        console.log('  student6@mdc.edu / password123  (S9520 - Applied AI, North)');
+        console.log('  student7@mdc.edu / password123  (S9501 - Software Engineering, Wolfson)');
+        console.log('  advisor1@mdc.edu / password123  (Advisor — Maria Sanchez, Applied AI)');
+        console.log('  advisor2@mdc.edu / password123  (Advisor — Carlos Reyes, Software Engineering)');
+        console.log('  chair1@mdc.edu   / password123  (Faculty Chairperson — Dr. James Rivera)');
 
     } catch (err) {
         await client.query('ROLLBACK');

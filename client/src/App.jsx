@@ -5,24 +5,29 @@
 // View flow:
 //   landing → student-auth → student-onboarding → student-dashboard
 //                          ↘ (returning login)  → student-dashboard
-//             advisor      → AdvisorView  (standard app header)
-//             faculty      → Coming Soon  (standard app header)
+//             faculty-auth → advisor-dashboard   (Advisor role)
+//             faculty-auth → chairperson         (Faculty role)
 // =============================================================================
 
 import { useState } from 'react';
-import LandingPage       from './pages/LandingPage';
-import AdvisorView       from './pages/AdvisorView';
-import StudentAuth       from './pages/StudentAuth';
-import StudentOnboarding from './pages/StudentOnboarding';
-import StudentDashboard  from './pages/StudentDashboard';
+import LandingPage           from './pages/LandingPage';
+import FacultyAuth           from './pages/FacultyAuth';
+import AdvisorView           from './pages/AdvisorView';
+import AdvisorDashboard      from './pages/AdvisorDashboard';
+import ChairpersonDashboard  from './pages/ChairpersonDashboard';
+import StudentAuth           from './pages/StudentAuth';
+import StudentOnboarding     from './pages/StudentOnboarding';
+import StudentDashboard      from './pages/StudentDashboard';
 
 export default function App() {
   const [view, setView] = useState('landing');
   const [user, setUser] = useState(null);
 
-  // Landing page → student role goes to auth, not old StudentView
   function handleLandingSelect(role) {
-    setView(role === 'student' ? 'student-auth' : role);
+    if (role === 'student')       setView('student-auth');
+    else if (role === 'advisor')  setView('faculty-auth');
+    else if (role === 'faculty')  setView('faculty-auth');
+    else                          setView(role);
   }
 
   // ── Full-screen views (no shared header) ──────────────────────────────────
@@ -36,7 +41,6 @@ export default function App() {
       <StudentAuth
         onLogin={(u) => {
           setUser(u);
-          // Route students who haven't completed onboarding back to it
           if (u.role === 'Student' && !u.degree_code) {
             setView('student-onboarding');
           } else {
@@ -50,11 +54,7 @@ export default function App() {
   }
 
   if (view === 'student-onboarding') {
-    // If user session was lost (e.g. hot-reload reset state), bounce back to auth
-    if (!user) {
-      setView('student-auth');
-      return null;
-    }
+    if (!user) { setView('student-auth'); return null; }
     return (
       <StudentOnboarding
         user={user}
@@ -72,7 +72,42 @@ export default function App() {
     );
   }
 
-  // ── Advisor / Faculty views (shared app header) ───────────────────────────
+  // ── Faculty / Advisor Auth ────────────────────────────────────────────────
+
+  if (view === 'faculty-auth') {
+    return (
+      <FacultyAuth
+        onLogin={(u) => {
+          setUser(u);
+          if (u.role === 'Faculty')  setView('chairperson');
+          else                       setView('advisor-dashboard');
+        }}
+        onBack={() => setView('landing')}
+      />
+    );
+  }
+
+  // ── Authenticated Staff Dashboards ────────────────────────────────────────
+
+  if (view === 'chairperson') {
+    return (
+      <ChairpersonDashboard
+        user={user}
+        onSignOut={() => { setUser(null); setView('landing'); }}
+      />
+    );
+  }
+
+  if (view === 'advisor-dashboard') {
+    return (
+      <AdvisorDashboard
+        user={user}
+        onSignOut={() => { setUser(null); setView('landing'); }}
+      />
+    );
+  }
+
+  // ── Legacy unauthenticated advisor view (kept for backward compat) ────────
 
   return (
     <>
@@ -90,12 +125,6 @@ export default function App() {
 
       <main className="app-main">
         {view === 'advisor' && <AdvisorView />}
-        {view === 'faculty' && (
-          <div className="page">
-            <h2>Faculty Staff Portal</h2>
-            <p>This section is currently under development. Please check back soon.</p>
-          </div>
-        )}
       </main>
     </>
   );

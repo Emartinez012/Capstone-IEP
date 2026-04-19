@@ -102,6 +102,242 @@ router.post('/generate/:studentId', async (req, res) => {
     }
 });
 
+// PUT /api/plans/:studentId
+// Replaces all schedule items with the student's edited plan.
+router.put('/:studentId', async (req, res) => {
+    const { studentId } = req.params;
+    const { plan } = req.body;
+    if (!plan || !Array.isArray(plan)) {
+        return res.status(400).json({ error: 'Invalid plan data.' });
+    }
+    try {
+        const schedRes = await db.query(
+            `SELECT schedule_id FROM generated_schedules
+             WHERE student_user_id = $1 AND deleted_at IS NULL
+             ORDER BY created_at DESC LIMIT 1`,
+            [studentId]
+        );
+        if (!schedRes.rows.length) return res.status(404).json({ error: 'No plan found to update.' });
+        const { schedule_id } = schedRes.rows[0];
+
+        const client = await db.getClient();
+        try {
+            await client.query('BEGIN');
+            await client.query(`DELETE FROM schedule_items WHERE schedule_id = $1`, [schedule_id]);
+
+            for (const sem of plan) {
+                for (const course of sem.courses) {
+                    if (!course.is_elective) {
+                        await client.query(
+                            `INSERT INTO schedule_items (schedule_id, course_code, semester_year, semester_term)
+                             VALUES ($1, $2, $3, $4)`,
+                            [schedule_id, course.course_code, sem.semester, sem.term_code]
+                        );
+                    }
+                }
+            }
+
+            const lastSem = [...plan].sort((a, b) => b.semester - a.semester)[0];
+            if (lastSem) {
+                await client.query(
+                    `UPDATE generated_schedules SET projected_graduation_term = $1 WHERE schedule_id = $2`,
+                    [lastSem.term_code, schedule_id]
+                );
+            }
+
+            await client.query(
+                `INSERT INTO iep_status_history (schedule_id, student_user_id, status, changed_by, notes)
+                 VALUES ($1, $2, 'Draft', $2, 'Plan manually edited')`,
+                [schedule_id, studentId]
+            );
+            await client.query('COMMIT');
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
+
+        const itemsRes = await db.query(
+            `SELECT si.course_code, si.semester_year, si.semester_term, c.credits, c.title
+             FROM schedule_items si
+             JOIN courses c ON si.course_code = c.course_code
+             WHERE si.schedule_id = $1
+             ORDER BY si.semester_year`,
+            [schedule_id]
+        );
+        const updatedPlan = groupPlanEntries(itemsRes.rows.map(r => ({
+            course_code: r.course_code, semester_number: r.semester_year,
+            term_code: r.semester_term, credits: r.credits, title: r.title,
+        })));
+        const gradRes = await db.query(
+            `SELECT projected_graduation_term FROM generated_schedules WHERE schedule_id = $1`,
+            [schedule_id]
+        );
+        res.json({ plan: updatedPlan, graduation_term: gradRes.rows[0]?.projected_graduation_term ?? null });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to save plan.' });
+    }
+});
+
+// GET /api/plans/:studentId/status
+router.get('/:studentId/status', async (req, res) => {
+    const { studentId } = req.params;
+    try {
+        const schedRes = await db.query(
+            `SELECT schedule_id FROM generated_schedules
+             WHERE student_user_id = $1 AND deleted_at IS NULL
+             ORDER BY created_at DESC LIMIT 1`,
+            [studentId]
+        );
+        if (!schedRes.rows.length) {
+            return res.json({ current_status: 'Draft', history: [], advisor_notes: null, schedule_id: null });
+        }
+        const { schedule_id } = schedRes.rows[0];
+
+        const histRes = await db.query(
+            `SELECT h.status, h.notes, h.created_at,
+                    u.first_name || ' ' || u.last_name AS changed_by_name
+             FROM iep_status_history h
+             LEFT JOIN users u ON h.changed_by = u.user_id
+             WHERE h.schedule_id = $1
+             ORDER BY h.created_at DESC`,
+            [schedule_id]
+        );
+
+        const history = histRes.rows;
+        const currentStatus = history.length > 0 ? history[0].status : 'Draft';
+        const advisorEntry = history.find(h => ['Approved', 'Declined'].includes(h.status));
+
+        res.json({
+            schedule_id,
+            current_status:  currentStatus,
+            advisor_notes:   advisorEntry?.notes ?? null,
+            history,
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch IEP status.' });
+    }
+});
+
+// POST /api/plans/:studentId/submit — student submits plan to advisor
+router.post('/:studentId/submit', async (req, res) => {
+    const { studentId } = req.params;
+    try {
+        const schedRes = await db.query(
+            `SELECT schedule_id FROM generated_schedules
+             WHERE student_user_id = $1 AND deleted_at IS NULL
+             ORDER BY created_at DESC LIMIT 1`,
+            [studentId]
+        );
+        if (!schedRes.rows.length) return res.status(400).json({ error: 'No plan to submit.' });
+        const { schedule_id } = schedRes.rows[0];
+
+        const itemsRes = await db.query(
+            `SELECT si.course_code, si.semester_year, si.semester_term, c.title, c.credits
+             FROM schedule_items si LEFT JOIN courses c ON si.course_code = c.course_code
+             WHERE si.schedule_id = $1 AND si.deleted_at IS NULL`,
+            [schedule_id]
+        );
+
+        const client = await db.getClient();
+        try {
+            await client.query('BEGIN');
+            await client.query(
+                `INSERT INTO iep_status_history (schedule_id, student_user_id, status, changed_by)
+                 VALUES ($1, $2, 'Submitted', $2)`,
+                [schedule_id, studentId]
+            );
+            await client.query(
+                `INSERT INTO iep_snapshots (schedule_id, student_user_id, snapshot_data, status)
+                 VALUES ($1, $2, $3, 'Submitted')`,
+                [schedule_id, studentId, JSON.stringify(itemsRes.rows)]
+            );
+            await client.query(
+                `UPDATE generated_schedules SET status = 'Pending_Advisor_Review'
+                 WHERE student_user_id = $1 AND deleted_at IS NULL`,
+                [studentId]
+            );
+            await client.query('COMMIT');
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
+        res.json({ success: true, status: 'Submitted' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to submit plan.' });
+    }
+});
+
+// POST /api/plans/:studentId/respond — student accepts or requests revision
+router.post('/:studentId/respond', async (req, res) => {
+    const { studentId } = req.params;
+    const { response } = req.body; // 'accept' | 'revise'
+    try {
+        const schedRes = await db.query(
+            `SELECT schedule_id FROM generated_schedules
+             WHERE student_user_id = $1 AND deleted_at IS NULL
+             ORDER BY created_at DESC LIMIT 1`,
+            [studentId]
+        );
+        if (!schedRes.rows.length) return res.status(400).json({ error: 'No plan found.' });
+        const { schedule_id } = schedRes.rows[0];
+        const status = response === 'accept' ? 'Accepted' : 'Revised';
+        const schedStatus = response === 'accept' ? 'Official' : 'Temporary';
+        await db.query(
+            `INSERT INTO iep_status_history (schedule_id, student_user_id, status, changed_by)
+             VALUES ($1, $2, $3, $2)`,
+            [schedule_id, studentId, status]
+        );
+        await db.query(
+            `UPDATE generated_schedules SET status = $1
+             WHERE student_user_id = $2 AND deleted_at IS NULL`,
+            [schedStatus, studentId]
+        );
+        res.json({ success: true, status });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to record response.' });
+    }
+});
+
+// POST /api/plans/:studentId/advisor-review — advisor approves or declines
+router.post('/:studentId/advisor-review', async (req, res) => {
+    const { studentId } = req.params;
+    const { decision, notes, advisor_id } = req.body; // 'approve' | 'decline'
+    try {
+        const schedRes = await db.query(
+            `SELECT schedule_id FROM generated_schedules
+             WHERE student_user_id = $1 AND deleted_at IS NULL
+             ORDER BY created_at DESC LIMIT 1`,
+            [studentId]
+        );
+        if (!schedRes.rows.length) return res.status(400).json({ error: 'No plan found.' });
+        const { schedule_id } = schedRes.rows[0];
+        const status = decision === 'approve' ? 'Approved' : 'Declined';
+        const schedStatus = decision === 'approve' ? 'Pending_Student_Acceptance' : 'Temporary';
+        await db.query(
+            `INSERT INTO iep_status_history (schedule_id, student_user_id, status, changed_by, notes)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [schedule_id, studentId, status, advisor_id || null, notes || null]
+        );
+        await db.query(
+            `UPDATE generated_schedules SET status = $1
+             WHERE student_user_id = $2 AND deleted_at IS NULL`,
+            [schedStatus, studentId]
+        );
+        res.json({ success: true, status });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to record advisor review.' });
+    }
+});
+
 // GET /api/plans/:studentId
 // Retrieves the most recently saved plan for a student.
 router.get('/:studentId', async (req, res) => {
