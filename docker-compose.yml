@@ -1,4 +1,19 @@
 services:
+  db:
+    image: postgres:15-alpine
+    container_name: iep_engine_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=password123
+      - POSTGRES_DB=iep_engine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - iep-internal
+
   backend:
     build: ./server
     container_name: backend-service
@@ -9,6 +24,19 @@ services:
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=password123
       - POSTGRES_DB=iep_engine
+    depends_on:
+      - db
+    networks:
+      - iep-internal
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --protocol http2 --token ${TUNNEL_TOKEN}
+
+    depends_on:
+      - backend
     networks:
       - iep-internal
 
@@ -19,9 +47,13 @@ services:
       - "5173:5173"
     environment:
       - BACKEND_URL=http://backend:3001
+    depends_on:
+      - backend
     networks:
       - iep-internal
 
+volumes:
+  pgdata:
+
 networks:
   iep-internal:
-    external: true

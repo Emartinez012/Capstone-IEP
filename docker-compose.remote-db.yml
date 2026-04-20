@@ -1,0 +1,13 @@
+services:
+  frontend:
+    build: ./client
+    container_name: frontend-service
+    ports:
+      - "5173:5173"
+    environment:
+      - BACKEND_URL=https://iep-backend.eejrr.cloudflareaccess.com
+    networks:
+      - iep-remote
+
+networks:
+  iep-remote:

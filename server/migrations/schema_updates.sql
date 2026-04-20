@@ -145,3 +145,106 @@ CREATE INDEX IF NOT EXISTS idx_course_substitutions_reviewer
 -- =============================================================================
 -- END OF MIGRATION
 -- =============================================================================
+
+
+-- ── 6. FACULTY DASHBOARD & IEP WORKFLOW ──────────────────────────────────────
+-- Changes made after the original schema audit (April 2026).
+-- All changes below are already applied by server.js migrate() at startup.
+-- Included here so a fresh restore from postgreSQL schema + this file is complete.
+
+-- Add Faculty role to user_role_type enum
+ALTER TYPE user_role_type ADD VALUE IF NOT EXISTS 'Faculty';
+
+-- Add new IEP status values to schedule_status_type
+-- (PostgreSQL has no DROP VALUE, so use IF NOT EXISTS workaround via DO block)
+DO $$ BEGIN
+    ALTER TYPE schedule_status_type ADD VALUE IF NOT EXISTS 'Pending_Advisor_Review';
+EXCEPTION WHEN others THEN NULL; END $$;
+DO $$ BEGIN
+    ALTER TYPE schedule_status_type ADD VALUE IF NOT EXISTS 'Pending_Student_Acceptance';
+EXCEPTION WHEN others THEN NULL; END $$;
+
+-- course_substitutions: free-text reason and original course tracking
+ALTER TABLE course_substitutions ADD COLUMN IF NOT EXISTS original_course_code VARCHAR(20);
+ALTER TABLE course_substitutions ADD COLUMN IF NOT EXISTS reason TEXT;
+
+-- student_profiles: secondary campus and GPA
+ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS secondary_campus_location VARCHAR(100) DEFAULT NULL;
+ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS gpa DECIMAL(3,2) DEFAULT NULL;
+
+-- iep_status_history: drop legacy columns, add workflow columns
+-- (DO block: drop+recreate only if 'status' column is missing — i.e., old schema)
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'iep_status_history' AND column_name = 'status'
+    ) THEN
+        DROP TABLE IF EXISTS iep_status_history CASCADE;
+        CREATE TABLE iep_status_history (
+            history_id      SERIAL PRIMARY KEY,
+            schedule_id     UUID NOT NULL REFERENCES generated_schedules(schedule_id) ON DELETE CASCADE,
+            student_user_id UUID REFERENCES users(user_id),
+            status          VARCHAR(30) NOT NULL,
+            changed_by      UUID REFERENCES users(user_id),
+            notes           TEXT,
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    END IF;
+END $$;
+
+-- iep_snapshots: add status and student_user_id columns
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'iep_snapshots' AND column_name = 'status'
+    ) THEN
+        DROP TABLE IF EXISTS iep_snapshots CASCADE;
+        CREATE TABLE iep_snapshots (
+            snapshot_id     SERIAL PRIMARY KEY,
+            schedule_id     UUID NOT NULL REFERENCES generated_schedules(schedule_id) ON DELETE CASCADE,
+            student_user_id UUID REFERENCES users(user_id),
+            snapshot_data   JSONB NOT NULL,
+            status          VARCHAR(30) NOT NULL,
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    END IF;
+END $$;
+ALTER TABLE iep_snapshots ADD COLUMN IF NOT EXISTS status VARCHAR(30);
+ALTER TABLE iep_snapshots ADD COLUMN IF NOT EXISTS student_user_id UUID;
+
+-- course_sections: replace narrow original with full scheduling definition
+-- (CREATE TABLE IF NOT EXISTS — only creates on a blank DB; existing containers keep their table)
+CREATE TABLE IF NOT EXISTS course_sections (
+    section_id     UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    course_code    VARCHAR(20) NOT NULL REFERENCES courses(course_code) ON DELETE CASCADE,
+    section_number VARCHAR(10) NOT NULL,
+    instructor     VARCHAR(150),
+    campus         VARCHAR(100),
+    modality       VARCHAR(50),
+    days           VARCHAR(20),
+    start_time     VARCHAR(10),
+    end_time       VARCHAR(10),
+    term_code      VARCHAR(10),
+    capacity       INTEGER DEFAULT 30,
+    enrolled       INTEGER DEFAULT 0,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at     TIMESTAMP DEFAULT NULL
+);
+
+-- degree_requirements: unique constraint for ON CONFLICT upserts
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'uq_degree_req_model_course'
+    ) THEN
+        ALTER TABLE degree_requirements
+        ADD CONSTRAINT uq_degree_req_model_course UNIQUE (model_id, course_code);
+    END IF;
+END $$;
+
+-- Index for multi-program advisor lookups
+CREATE INDEX IF NOT EXISTS idx_advisor_program_assignments
+    ON public.advisor_program_assignments USING btree (advisor_user_id);
+
+-- =============================================================================
+-- END OF MIGRATION
+-- =============================================================================
