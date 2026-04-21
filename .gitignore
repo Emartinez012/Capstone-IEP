@@ -5,3 +5,6 @@ dist/
 build/
 *.db-shm
 *.db-wal
+.claud/
+.claudignore
+CLAUDE.md

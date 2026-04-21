@@ -245,6 +245,12 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_advisor_program_assignments
     ON public.advisor_program_assignments USING btree (advisor_user_id);
 
+-- corequisite_codes column on courses (required by plan generation algorithm)
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS corequisite_codes TEXT;
+
+-- courses_per_semester on student_profiles (derived from target_credits; used by advisor dashboard)
+ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS courses_per_semester INTEGER;
+
 -- =============================================================================
 -- END OF MIGRATION
 -- =============================================================================

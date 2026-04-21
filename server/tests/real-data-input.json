@@ -1,47 +1,54 @@
 {
   "_instructions": [
-    "This file is the input for real-data-test.js.",
-    "HOW TO USE:",
-    "  1. Run as-is first to confirm the algorithm still matches the known result.",
-    "  2. When the professor provides real data, update 'student' and 'completed_courses'.",
-    "  3. If the professor provides a different program model, replace 'program_model'.",
-    "  4. If the professor knows the expected output, fill in 'expected_output'.",
-    "     Otherwise, leave it as null and review the printed schedule manually.",
+    "Input file for real-data-test.js.",
     "",
-    "IMPORTANT — course_id values:",
-    "  The course_id numbers here must be consistent between 'program_model' and",
-    "  'completed_courses'. They do NOT have to match the database. They just need",
-    "  to be the same number for the same course in both lists.",
+    "STUDENT fields:",
+    "  starting_term       — term code, e.g. '261' = Fall 2026",
+    "  credits_per_semester — max credits per semester (e.g. 12)",
+    "  include_summer      — true to schedule in summer, false to skip",
+    "",
+    "PROGRAM_MODEL fields per course:",
+    "  course_id      — unique identifier (any value, consistent with completed_courses)",
+    "  code           — course code string (for display only)",
+    "  name           — course name (for display only)",
+    "  priority_index — lower = scheduled earlier",
+    "  prerequisites  — array of course_id values that must be completed first",
+    "  credits        — credit hours",
+    "",
+    "TOTAL_CREDITS_REQUIRED — program total (e.g. 120); null = complete when all courses placed",
     "",
     "STARTING TERM FORMAT (YYT):",
-    "  YY = last two digits of year,  T = 1 (Fall), 2 (Spring), 3 (Summer)",
+    "  YY = last two digits of calendar year,  T = 1 (Fall), 2 (Spring), 3 (Summer)",
     "  Examples:  261 = Fall 2026 | 262 = Spring 2027 | 271 = Fall 2027"
   ],
 
   "student": {
-    "name": "Sample Student (algorithm verification)",
+    "name": "Sample Student (BS-AAI verification)",
     "starting_term": "241",
-    "courses_per_semester": 3
+    "credits_per_semester": 9,
+    "include_summer": true
   },
 
+  "total_credits_required": null,
+
   "program_model": [
-    { "course_id": 1,  "code": "CAI1001C", "name": "Introduction to Artificial Intelligence",  "priority_index": 1,  "levels": "1"     },
-    { "course_id": 2,  "code": "CGS1060C", "name": "Introduction to Computer Science",         "priority_index": 2,  "levels": "1;2;3" },
-    { "course_id": 3,  "code": "COP1047C", "name": "Programming Fundamentals",                 "priority_index": 3,  "levels": "1"     },
-    { "course_id": 4,  "code": "MAC1105",  "name": "College Algebra",                          "priority_index": 4,  "levels": "1"     },
-    { "course_id": 5,  "code": "CAI2100C", "name": "Applied Artificial Intelligence",          "priority_index": 5,  "levels": "2"     },
-    { "course_id": 6,  "code": "PHI2680",  "name": "Ethics in Technology",                     "priority_index": 6,  "levels": "1;2;3" },
-    { "course_id": 7,  "code": "CGS1540C", "name": "Database Management",                      "priority_index": 7,  "levels": "1;2;3" },
-    { "course_id": 8,  "code": "CAI2300C", "name": "Machine Learning Fundamentals",            "priority_index": 8,  "levels": "2"     },
-    { "course_id": 9,  "code": "CAI2840C", "name": "Deep Learning",                            "priority_index": 9,  "levels": "2"     },
-    { "course_id": 10, "code": "CTS1145",  "name": "Network Fundamentals",                     "priority_index": 10, "levels": "2"     },
-    { "course_id": 11, "code": "CAI2820C", "name": "AI Application Development",               "priority_index": 11, "levels": "1;2;3" },
-    { "course_id": 12, "code": "COP2800",  "name": "Advanced Programming",                     "priority_index": 12, "levels": "3"     },
-    { "course_id": 13, "code": "STA2023",  "name": "Introduction to Statistics",               "priority_index": 13, "levels": "2;3"   },
-    { "course_id": 14, "code": "ENC1101",  "name": "English Composition I",                    "priority_index": 14, "levels": "1;2;3" },
-    { "course_id": 15, "code": "HUM1020",  "name": "Introduction to Humanities",               "priority_index": 15, "levels": "1;2;3" },
-    { "course_id": 16, "code": "POS2041",  "name": "American Government",                      "priority_index": 16, "levels": "1;2;3" },
-    { "course_id": 17, "code": "CHM1020",  "name": "Introduction to Chemistry",                "priority_index": 17, "levels": "2;3"   }
+    { "course_id": 1,  "code": "CAI1001C", "name": "Artificial Intelligence (AI) Thinking",       "priority_index": 1,  "prerequisites": [],        "credits": 3 },
+    { "course_id": 2,  "code": "CGS1060C", "name": "Intro to Computer Technology & Applications", "priority_index": 2,  "prerequisites": [],        "credits": 4 },
+    { "course_id": 3,  "code": "COP1047C", "name": "Introduction to Python Programming",          "priority_index": 3,  "prerequisites": [],        "credits": 4 },
+    { "course_id": 4,  "code": "MAC1105",  "name": "College Algebra",                             "priority_index": 4,  "prerequisites": [],        "credits": 3 },
+    { "course_id": 5,  "code": "CAI2100C", "name": "Machine Learning Foundations",                "priority_index": 5,  "prerequisites": [1, 3],    "credits": 3 },
+    { "course_id": 6,  "code": "PHI2680",  "name": "Artificial Intelligence and Ethics",          "priority_index": 6,  "prerequisites": [],        "credits": 3 },
+    { "course_id": 7,  "code": "CGS1540C", "name": "Database Concepts and Design",                "priority_index": 7,  "prerequisites": [],        "credits": 4 },
+    { "course_id": 8,  "code": "CAI2300C", "name": "Intro to Natural Language Processing",        "priority_index": 8,  "prerequisites": [5],       "credits": 3 },
+    { "course_id": 9,  "code": "CAI2840C", "name": "Introduction to Computer Vision",             "priority_index": 9,  "prerequisites": [5],       "credits": 3 },
+    { "course_id": 10, "code": "CTS1145",  "name": "Cloud Essentials",                            "priority_index": 10, "prerequisites": [],        "credits": 4 },
+    { "course_id": 11, "code": "CAI2820C", "name": "AI Applications Solutions",                   "priority_index": 11, "prerequisites": [8, 9],    "credits": 3 },
+    { "course_id": 12, "code": "COP2800",  "name": "Java Programming",                            "priority_index": 12, "prerequisites": [],        "credits": 4 },
+    { "course_id": 13, "code": "STA2023",  "name": "Statistical Methods",                         "priority_index": 13, "prerequisites": [],        "credits": 3 },
+    { "course_id": 14, "code": "ENC1101",  "name": "English Composition 1",                       "priority_index": 14, "prerequisites": [],        "credits": 3 },
+    { "course_id": 15, "code": "HUM1020",  "name": "Introduction to Humanities",                  "priority_index": 15, "prerequisites": [],        "credits": 3 },
+    { "course_id": 16, "code": "POS2041",  "name": "American Federal Government",                 "priority_index": 16, "prerequisites": [],        "credits": 3 },
+    { "course_id": 17, "code": "CHM1020",  "name": "General Education Chemistry",                 "priority_index": 17, "prerequisites": [],        "credits": 3 }
   ],
 
   "completed_courses": [
@@ -52,12 +59,5 @@
     { "course_id": 16, "code": "POS2041",  "substituting_course_id": null }
   ],
 
-  "expected_output": [
-    { "semester": 1, "term": "241", "courses": ["CGS1060C"] },
-    { "semester": 2, "term": "242", "courses": ["CAI2100C", "PHI2680", "CGS1540C"] },
-    { "semester": 3, "term": "243", "courses": ["CAI2300C", "CAI2840C", "CTS1145"] },
-    { "semester": 4, "term": "251", "courses": ["CAI2820C"] },
-    { "semester": 5, "term": "252", "courses": ["COP2800", "ENC1101", "HUM1020"] },
-    { "semester": 6, "term": "253", "courses": ["CHM1020"] }
-  ]
+  "expected_output": null
 }

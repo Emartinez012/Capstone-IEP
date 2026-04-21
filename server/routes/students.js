@@ -8,11 +8,12 @@ const router  = express.Router();
 router.get('/', async (req, res) => {
     try {
         const result = await db.query(`
-            SELECT 
-                sp.user_id AS id, 
-                u.first_name, 
-                u.last_name, 
-                COALESCE(sp.courses_per_semester, 3) AS courses_per_semester, 
+            SELECT
+                sp.user_id AS id,
+                u.first_name,
+                u.last_name,
+                COALESCE(sp.courses_per_semester, 4) AS courses_per_semester,
+                sp.starting_term,
                 dp.program_name AS major_name,
                 (SELECT COUNT(*) FROM generated_schedules gs WHERE gs.student_user_id = sp.user_id) AS has_plan
             FROM student_profiles sp
@@ -33,11 +34,12 @@ router.get('/:id', async (req, res) => {
     const studentId = req.params.id;
     try {
         const studentRes = await db.query(`
-            SELECT 
-                sp.user_id AS id, 
-                u.first_name, 
-                u.last_name, 
-                COALESCE(sp.courses_per_semester, 3) AS courses_per_semester, 
+            SELECT
+                sp.user_id AS id,
+                u.first_name,
+                u.last_name,
+                COALESCE(sp.courses_per_semester, 4) AS courses_per_semester,
+                sp.starting_term,
                 dp.program_name AS major_name
             FROM student_profiles sp
             JOIN users u ON sp.user_id = u.user_id
@@ -86,8 +88,8 @@ router.put('/:id', async (req, res) => {
         // Resolve the published degree model for the chosen program
         const modelRes = await client.query(
             `SELECT model_id FROM degree_models
-             WHERE degree_code = $1 AND is_published = true
-             ORDER BY version_number DESC LIMIT 1`,
+             WHERE degree_code = $1
+             ORDER BY is_published DESC, version_number DESC LIMIT 1`,
             [degree_code]
         );
         const modelId = modelRes.rows[0]?.model_id || null;

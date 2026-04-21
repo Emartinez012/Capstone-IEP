@@ -418,7 +418,7 @@ router.get('/substitutions', async (req, res) => {
       JOIN   users u  ON u.user_id = cs.student_user_id
       JOIN   student_profiles sp ON sp.user_id = cs.student_user_id
       LEFT JOIN users ru ON ru.user_id = cs.assigned_reviewer_id
-      WHERE  cs.substitution_status IN ('Pending','In-Review')
+      WHERE  cs.substitution_status IN ('Pending','Under Review')
       ORDER  BY cs.submitted_at ASC
     `);
     res.json(result.rows);

@@ -42,6 +42,7 @@ async function migrate() {
         // Missing student_profiles columns
         `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS starting_term VARCHAR(10) DEFAULT '242'`,
         `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS is_transfer BOOLEAN DEFAULT FALSE`,
+        `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS courses_per_semester INTEGER`,
 
         // NOT NULL on critical FK columns
         `ALTER TABLE academic_history    ALTER COLUMN user_id     SET NOT NULL`,
@@ -120,8 +121,9 @@ async function migrate() {
         `ALTER TABLE iep_snapshots ADD COLUMN IF NOT EXISTS status VARCHAR(30)`,
         `ALTER TABLE iep_snapshots ADD COLUMN IF NOT EXISTS student_user_id UUID`,
 
-        // Description column on courses
+        // Description and corequisite columns on courses
         `ALTER TABLE courses ADD COLUMN IF NOT EXISTS description TEXT`,
+        `ALTER TABLE courses ADD COLUMN IF NOT EXISTS corequisite_codes TEXT`,
 
         // Course sections table
         `CREATE TABLE IF NOT EXISTS course_sections (

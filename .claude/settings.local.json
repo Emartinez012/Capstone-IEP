@@ -23,7 +23,9 @@
       "Bash(npx eslint *)",
       "Bash(cmd *)",
       "Bash(node *)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "Bash(command -v node)",
+      "Read(//usr/local/bin/**)"
     ]
   }
 }

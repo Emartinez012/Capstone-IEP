@@ -24,8 +24,8 @@ export default function PlanDisplay({ plan, studentName }) {
       <div className="semester-grid">
         {plan.map(semester => (
           <SemesterCard
-            key={semester.semester_number}
-            semester_number={semester.semester_number}
+            key={semester.semester}
+            semester_number={semester.semester}
             term_code={semester.term_code}
             courses={semester.courses}
           />

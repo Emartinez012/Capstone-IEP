@@ -6,14 +6,30 @@ const db         = require('../db');
 const { createPlan } = require('../algorithm/planAlgorithm');
 const router     = express.Router();
 
+// Converts the prerequisite_codes string stored in the DB into the array
+// expected by planAlgorithm. New SQL data uses comma-separated AND lists;
+// legacy boolean-expression strings are tokenised (course codes only).
+function parsePrereqCodes(raw) {
+    if (!raw) return [];
+    if (!raw.includes(' ') && !raw.includes('(')) {
+        return raw.split(',').filter(Boolean);
+    }
+    const matches = raw.match(/[A-Z]{2,4}\d{3,4}[A-Z]?/g);
+    return matches ? [...new Set(matches)] : [];
+}
+
 // POST /api/plans/generate/:studentId
 // Generates and saves a new degree plan for a student.
 router.post('/generate/:studentId', async (req, res) => {
     const studentId = req.params.studentId;
     try {
-        // 1. Get student profile (needs current_degree_model_id and starting_term)
+        // 1. Get student profile — map DB column names to algorithm field names
         const studentRes = await db.query(
-            `SELECT user_id AS id, target_credits, starting_term, opt_out_summer, current_degree_model_id
+            `SELECT user_id AS id,
+                    target_credits       AS credits_per_semester,
+                    starting_term,
+                    (NOT opt_out_summer) AS include_summer,
+                    current_degree_model_id
              FROM student_profiles WHERE user_id = $1`,
             [studentId]
         );
@@ -26,30 +42,57 @@ router.post('/generate/:studentId', async (req, res) => {
             return res.status(400).json({ error: 'Student has no degree model assigned. Complete onboarding first.' });
         }
 
-        // 2. Get academic history
+        // 2. Get degree model metadata (total_credits_required)
+        const degreeModelRes = await db.query(
+            `SELECT total_credits_required FROM degree_models WHERE model_id = $1`,
+            [student.current_degree_model_id]
+        );
+        const degreeModel = degreeModelRes.rows[0] ?? { total_credits_required: null };
+
+        // 3. Get academic history — map course_code to course_id for the algorithm
         const historyRes = await db.query(
             `SELECT course_code FROM academic_history WHERE user_id = $1 AND deleted_at IS NULL`,
             [studentId]
         );
-        const history = historyRes.rows;
+        const completedCourses = historyRes.rows.map(r => ({
+            course_id: r.course_code,
+            substituting_course_id: null,
+        }));
 
-        // 3. Get degree model courses with prerequisites and priority
+        // 4. Get degree model courses — rename columns to match algorithm expectations
         const modelRes = await db.query(
-            `SELECT c.course_code, c.credits, c.prerequisite_codes, dr.priority_value
+            `SELECT c.course_code        AS course_id,
+                    c.credits,
+                    c.corequisite_codes  AS corequisite_code,
+                    c.prerequisite_codes,
+                    dr.priority_value    AS priority_index
              FROM degree_requirements dr
              JOIN courses c ON dr.course_code = c.course_code
              WHERE dr.model_id = $1 AND dr.deleted_at IS NULL
              ORDER BY dr.priority_value ASC`,
             [student.current_degree_model_id]
         );
-        const model = modelRes.rows;
+        // Only keep prerequisites the algorithm can actually resolve — courses
+        // in this degree model or already completed by the student. Prereqs
+        // outside this set (e.g. ECET-only courses referenced by COP2800)
+        // can never appear in takenIds and would cause a permanent deadlock.
+        const knownIds = new Set([
+            ...modelRes.rows.map(r => r.course_id),
+            ...completedCourses.map(c => c.course_id),
+        ]);
+
+        const model = modelRes.rows.map(r => ({
+            ...r,
+            prerequisites: parsePrereqCodes(r.prerequisite_codes)
+                               .filter(p => knownIds.has(p)),
+        }));
 
         if (!model.length) {
             return res.status(400).json({ error: 'Degree model has no courses defined.' });
         }
 
-        // 4. Run the algorithm
-        const planEntries = createPlan(student, history, model);
+        // 5. Run the algorithm
+        const planEntries = createPlan(completedCourses, model, student, degreeModel);
 
         if (!planEntries.length) {
             return res.json({ student_id: studentId, semesters_count: 0, plan: [], graduation_term: null });
@@ -57,7 +100,7 @@ router.post('/generate/:studentId', async (req, res) => {
 
         const graduationTerm = planEntries[planEntries.length - 1].term_code;
 
-        // 5. Save the plan inside a transaction
+        // 6. Save the plan inside a transaction
         const client = await db.getClient();
         let scheduleId;
         try {
@@ -77,10 +120,11 @@ router.post('/generate/:studentId', async (req, res) => {
             scheduleId = scheduleRes.rows[0].schedule_id;
 
             for (const entry of planEntries) {
+                if (!entry.course_id) continue; // skip Student Elective placeholders
                 await client.query(
                     `INSERT INTO schedule_items (schedule_id, course_code, semester_year, semester_term)
                      VALUES ($1, $2, $3, $4)`,
-                    [scheduleId, entry.course_code, entry.semester_number, entry.term_code]
+                    [scheduleId, entry.course_id, entry.semester_number, entry.term_code]
                 );
             }
 
