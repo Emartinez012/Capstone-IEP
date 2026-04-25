@@ -50,7 +50,6 @@ async function migrate() {
         `ALTER TABLE degree_requirements ALTER COLUMN model_id    SET NOT NULL`,
         `ALTER TABLE degree_requirements ALTER COLUMN course_code SET NOT NULL`,
         `ALTER TABLE schedule_items      ALTER COLUMN schedule_id SET NOT NULL`,
-        `ALTER TABLE schedule_items      ALTER COLUMN course_code SET NOT NULL`,
 
         // Performance indexes
         `CREATE INDEX IF NOT EXISTS idx_academic_history_user       ON academic_history(user_id)`,
@@ -152,6 +151,10 @@ async function migrate() {
                 ADD CONSTRAINT uq_degree_req_model_course UNIQUE (model_id, course_code);
             END IF;
         END $$`,
+
+        // Allow NULL course_code for Student Elective placeholder rows.
+        `ALTER TABLE schedule_items ALTER COLUMN course_code DROP NOT NULL`,
+        `ALTER TABLE schedule_items DROP CONSTRAINT IF EXISTS schedule_items_course_code_fkey`,
     ];
 
     for (const sql of migrations) {

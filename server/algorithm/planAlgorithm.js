@@ -450,15 +450,18 @@ function createPlan(completedCourses, modelCourses, student, degreeModel, credit
 
     // --- Main loop ----------------------------------------------------------
 
-    while (!isComplete() && semester < MAX_SEMESTERS) {
-        semester += 1;
+    let loopGuard = 0;
+    while (!isComplete() && loopGuard < MAX_SEMESTERS) {
+        loopGuard += 1;
 
-        // Summer opt-out.
+        // Summer opt-out — advance term without consuming a semester number
+        // so semester_year values in the DB remain contiguous.
         if (isSummerTerm(currentTerm) && student.include_summer === false) {
             currentTerm = updateTerm(currentTerm);
             continue;
         }
 
+        semester += 1;
         let semesterCredits = 0;
         const scheduledThisSemester = new Set();
         let placedRealThisSemester = 0;
@@ -507,13 +510,21 @@ function createPlan(completedCourses, modelCourses, student, degreeModel, credit
                 // --- Capacity check ---
                 if (semesterCredits + groupCost > student.credits_per_semester + creditBuffer) {
                     // Blocked by overflow. Enter/extend restricted mode:
-                    // allow only courses on this group's prereq chain.
+                    // allow only UNPLACED courses on this group's prereq chain.
+                    // If all prereqs are already taken, don't restrict the walk —
+                    // an empty allowList would block every remaining course.
                     const chain = collectTransitivePrereqs(
                         unplacedGroup.map(c => c.course_id),
                         modelById
                     );
-                    if (allowList === null) allowList = new Set();
-                    for (const id of chain) allowList.add(id);
+                    const unplacedChain = [...chain].filter(id => {
+                        const c = modelById.get(id);
+                        return c && !c.taken;
+                    });
+                    if (unplacedChain.length > 0) {
+                        if (allowList === null) allowList = new Set();
+                        for (const id of unplacedChain) allowList.add(id);
+                    }
                     continue;
                 }
 
@@ -530,12 +541,20 @@ function createPlan(completedCourses, modelCourses, student, degreeModel, credit
                 }
                 if (!allPrereqsOk) {
                     // Blocked by prereq. Enter/extend restricted mode.
+                    // Only add unplaced prereqs — taken ones would silently empty
+                    // the allowList and block the entire semester walk.
                     const chain = collectTransitivePrereqs(
                         unplacedGroup.map(c => c.course_id),
                         modelById
                     );
-                    if (allowList === null) allowList = new Set();
-                    for (const id of chain) allowList.add(id);
+                    const unplacedChain = [...chain].filter(id => {
+                        const c = modelById.get(id);
+                        return c && !c.taken;
+                    });
+                    if (unplacedChain.length > 0) {
+                        if (allowList === null) allowList = new Set();
+                        for (const id of unplacedChain) allowList.add(id);
+                    }
                     continue;
                 }
 
@@ -563,9 +582,7 @@ function createPlan(completedCourses, modelCourses, student, degreeModel, credit
 
         // --- Phase 2: fill with Student Elective rows ---------------------
         //
-        // Electives use the HARD cap (no buffer). Buffer is for real courses
-        // where a heavy-credit load is worth the overload; it shouldn't be
-        // spent on filler.
+        // Electives use the HARD cap (no buffer). 
         while (semesterCredits + ELECTIVE_CREDITS <= student.credits_per_semester) {
             if (totalCreditsRequired !== null &&
                 creditsAccrued + ELECTIVE_CREDITS > totalCreditsRequired) break;
@@ -591,7 +608,7 @@ function createPlan(completedCourses, modelCourses, student, degreeModel, credit
         currentTerm = updateTerm(currentTerm);
     }
 
-    if (semester >= MAX_SEMESTERS) {
+    if (loopGuard >= MAX_SEMESTERS) {
         console.warn('WARNING: createPlan hit the 100-semester safety limit. Check your model data.');
     }
 

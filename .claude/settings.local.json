@@ -25,7 +25,12 @@
       "Bash(node *)",
       "Bash(powershell *)",
       "Bash(command -v node)",
-      "Read(//usr/local/bin/**)"
+      "Read(//usr/local/bin/**)",
+      "Bash(where node *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(node server/tests/verify-programs.js)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(docker exec backend-service *)"
     ]
   }
 }

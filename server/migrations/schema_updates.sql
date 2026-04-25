@@ -251,6 +251,11 @@ ALTER TABLE courses ADD COLUMN IF NOT EXISTS corequisite_codes TEXT;
 -- courses_per_semester on student_profiles (derived from target_credits; used by advisor dashboard)
 ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS courses_per_semester INTEGER;
 
+-- ── 7. ELECTIVE PLACEHOLDER ROWS IN schedule_items ──────────────────────────
+-- Allow NULL course_code so Student Elective sentinel rows can be persisted.
+ALTER TABLE schedule_items ALTER COLUMN course_code DROP NOT NULL;
+ALTER TABLE schedule_items DROP CONSTRAINT IF EXISTS schedule_items_course_code_fkey;
+
 -- =============================================================================
 -- END OF MIGRATION
 -- =============================================================================

@@ -22,9 +22,9 @@ export default function SemesterCard({
         <span className={`semester-term ${termClass}`}>{termLabel}</span>
       </div>
       <ul className="course-list">
-        {courses.map(course =>
+        {courses.map((course, idx) =>
           course.is_elective ? (
-            <li key={`elective-${semester_number}`} className="course-item elective-placeholder">
+            <li key={`elective-${semester_number}-${idx}`} className="course-item elective-placeholder">
               <span className="course-code">ELECTIVE</span>
               <span className="course-name">
                 {editMode

@@ -120,7 +120,8 @@ router.post('/generate/:studentId', async (req, res) => {
             scheduleId = scheduleRes.rows[0].schedule_id;
 
             for (const entry of planEntries) {
-                if (!entry.course_id) continue; // skip Student Elective placeholders
+                // course_id is null for Student Elective rows; store NULL so the
+                // semester survives reload from the DB.
                 await client.query(
                     `INSERT INTO schedule_items (schedule_id, course_code, semester_year, semester_term)
                      VALUES ($1, $2, $3, $4)`,
@@ -171,13 +172,11 @@ router.put('/:studentId', async (req, res) => {
 
             for (const sem of plan) {
                 for (const course of sem.courses) {
-                    if (!course.is_elective) {
-                        await client.query(
-                            `INSERT INTO schedule_items (schedule_id, course_code, semester_year, semester_term)
-                             VALUES ($1, $2, $3, $4)`,
-                            [schedule_id, course.course_code, sem.semester, sem.term_code]
-                        );
-                    }
+                    await client.query(
+                        `INSERT INTO schedule_items (schedule_id, course_code, semester_year, semester_term)
+                         VALUES ($1, $2, $3, $4)`,
+                        [schedule_id, course.is_elective ? null : course.course_code, sem.semester, sem.term_code]
+                    );
                 }
             }
 
@@ -205,7 +204,7 @@ router.put('/:studentId', async (req, res) => {
         const itemsRes = await db.query(
             `SELECT si.course_code, si.semester_year, si.semester_term, c.credits, c.title
              FROM schedule_items si
-             JOIN courses c ON si.course_code = c.course_code
+             LEFT JOIN courses c ON si.course_code = c.course_code
              WHERE si.schedule_id = $1
              ORDER BY si.semester_year`,
             [schedule_id]
@@ -213,6 +212,7 @@ router.put('/:studentId', async (req, res) => {
         const updatedPlan = groupPlanEntries(itemsRes.rows.map(r => ({
             course_code: r.course_code, semester_number: r.semester_year,
             term_code: r.semester_term, credits: r.credits, title: r.title,
+            is_elective: r.course_code === null,
         })));
         const gradRes = await db.query(
             `SELECT projected_graduation_term FROM generated_schedules WHERE schedule_id = $1`,
@@ -404,7 +404,7 @@ router.get('/:studentId', async (req, res) => {
         const itemsRes = await db.query(
             `SELECT si.course_code, si.semester_year, si.semester_term, c.credits, c.title
              FROM schedule_items si
-             JOIN courses c ON si.course_code = c.course_code
+             LEFT JOIN courses c ON si.course_code = c.course_code
              WHERE si.schedule_id = $1 AND si.deleted_at IS NULL
              ORDER BY si.semester_year`,
             [schedule_id]
@@ -416,6 +416,7 @@ router.get('/:studentId', async (req, res) => {
             term_code: row.semester_term,
             credits: row.credits,
             title: row.title,
+            is_elective: row.course_code === null,
         }));
 
         const plan = groupPlanEntries(rawEntries);
@@ -435,10 +436,14 @@ function groupPlanEntries(entries) {
         if (!grouped[key]) {
             grouped[key] = { semester: key, term_code: entry.term_code, courses: [] };
         }
+        // Algorithm entries use course_id; DB entries use course_code.
+        const courseCode = entry.course_code ?? entry.course_id ?? null;
+        const isElective = entry.is_elective === true || courseCode === null;
         grouped[key].courses.push({
-            course_code: entry.course_code,
+            course_code: courseCode,
             credits: entry.credits,
             title: entry.title || null,
+            is_elective: isElective,
         });
     }
     return Object.values(grouped);
