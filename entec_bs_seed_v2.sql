@@ -826,48 +826,40 @@ VALUES
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  30, 'SLS1106',  'GEN_ED_ELECTIVE', 1, FALSE, NULL, NULL, 'FIRST_8_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  40, 'CAI1001C', 'MAJOR',           1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  50, 'COP1047C', 'MAJOR',           1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
-
     -- ── Semester 2 (Spring) ─────────────────────────────────────────────────
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  60, 'MAC1147',  'MAJOR_PREP',      1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  70, 'ENC1102',  'GEN_ED_COMM',     1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  80, 'COP1334',  'MAJOR',           1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  90, 'STA2023',  'MAJOR_PREP',      1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
-
     -- ── Semester 3 (Summer) ─────────────────────────────────────────────────
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 100, 'CAI2100C', 'MAJOR',           1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 110, 'COP2800',  'MAJOR',           1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
-
     -- ── Semester 4 (Fall) ───────────────────────────────────────────────────
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 120, 'MAC2311',  'MAJOR_PREP',       1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 130, 'PHY1025',  'GEN_ED_SCIENCE',   1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 140, 'CAI3821C', 'MAJOR',            2, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 150, 'CAI2840C', 'MAJOR',            1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
-
     -- ── Semester 5 (Spring) ─────────────────────────────────────────────────
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 160, 'MAC2312',  'MAJOR_PREP',       1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 170, 'CAI3822C', 'MAJOR',            2, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 180, 'COP3530',  'MAJOR',            2, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 190, 'CAI3303C', 'MAJOR',            2, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
-
     -- ── Semester 6 (Summer) ─────────────────────────────────────────────────
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 200, 'PHY2048',  'GEN_ED_SCIENCE',     1, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 210, 'PHY2048L', 'GEN_ED_SCIENCE_LAB', 1, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 220, 'PHI2680',  'GEN_ED_HUMANITIES',  1, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
-
     -- ── Semester 7 (Fall) ───────────────────────────────────────────────────
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 230, 'CHM1045',  'GEN_ED_SCIENCE',     1, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 240, 'CHM1045L', 'GEN_ED_SCIENCE_LAB', 1, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 250, 'CAI4505C', 'MAJOR',              2, FALSE, NULL, NULL, 'FULL_16_WEEK', FALSE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 260, 'CAI4510C', 'MAJOR',              2, FALSE, NULL, NULL, 'FULL_16_WEEK', FALSE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 270, 'CAI4830C', 'MAJOR',              2, FALSE, NULL, NULL, 'FULL_16_WEEK', FALSE),
-
     -- ── Semester 8 (Spring) ─────────────────────────────────────────────────
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 280, 'CAI4420C', 'MAJOR',                2, FALSE, NULL, NULL, 'FULL_16_WEEK', FALSE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 290, 'CAI4525C', 'MAJOR',                2, FALSE, NULL, NULL, 'FULL_16_WEEK', FALSE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 300, NULL,       'PROGRAM_ELECTIVE',     2, TRUE,  'CAP3330', ARRAY['CAP3330','STA3164'],  'FULL_16_WEEK', TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 310, NULL,       'GEN_ED_SOCIAL_SCIENCE',1, TRUE,  'AMH2010', ARRAY['AMH2010','POS2041'],  'FULL_16_WEEK', TRUE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 320, NULL,       'GEN_ED_HUMANITIES',    1, TRUE,  'ARH1000', ARRAY['ARH1000','HUM1020'],  'FULL_16_WEEK', TRUE),
-
     -- ── Semester 9 (Fall) ───────────────────────────────────────────────────
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 330, 'CAI4950C', 'CAPSTONE',             2, FALSE, NULL,      NULL,                        'FULL_16_WEEK', FALSE),
     ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 340, NULL,       'GEN_ED_ORAL_COMM',     1, TRUE,  'SPC1017', ARRAY['SPC1017','ENC2300'],  'FULL_16_WEEK', TRUE),
