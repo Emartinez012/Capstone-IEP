@@ -684,17 +684,17 @@ router.post('/programs/:code/courses', async (req, res) => {
         `, [course_code.trim().toUpperCase(), title.trim(), credits || 3,
             description || null, prerequisite_codes || null]);
 
-        const modelRes = await client.query(`
+        const degreeModelRes = await client.query(`
             SELECT model_id FROM degree_models
             WHERE degree_code = $1 AND is_published = true
             ORDER BY version_number DESC LIMIT 1
         `, [code]);
 
-        if (!modelRes.rows.length) {
+        if (!degreeModelRes.rows.length) {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: 'No published degree model found for this program.' });
         }
-        const { model_id } = modelRes.rows[0];
+        const { model_id } = degreeModelRes.rows[0];
 
         const maxRes = await client.query(
             `SELECT COALESCE(MAX(priority_value), 0) AS mx FROM degree_requirements WHERE model_id = $1`,

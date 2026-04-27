@@ -15,6 +15,7 @@ import {
   getProgramCourses, addProgramCourse, removeProgramCourse, updateCourse,
   getCourseSections, addCourseSection, updateCourseSection, deleteCourseSection,
 } from '../api';
+import ProgramModelEditor from './ProgramModelEditor';
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -910,6 +911,8 @@ function CurriculumTab({ programs }) {
   const [addSecFor,     setAddSecFor]     = useState(null);  // course_code
   const [editSec,       setEditSec]       = useState(null);  // section obj
 
+  const [editingProgramModel, setEditingProgramModel] = useState(null); // programId | null
+
   const [error,  setError]  = useState('');
   const [toast,  setToast]  = useState('');
 
@@ -1015,6 +1018,14 @@ function CurriculumTab({ programs }) {
         </div>
         <button className="curr-add-btn" onClick={() => { setError(''); setShowAddCourse(true); }}>
           + Add Course
+        </button>
+        <button
+          className="curr-edit-model-btn"
+          onClick={() => { setError(''); setEditingProgramModel(selProgram); }}
+          disabled={!selProgram}
+          title="Edit the priority-ordered program model used by the IEP generator"
+        >
+          Edit Program Model
         </button>
       </div>
 
@@ -1170,6 +1181,12 @@ function CurriculumTab({ programs }) {
       {editCourse    && <CourseModal course={editCourse}  onSave={handleEditCourse} onClose={() => setEditCourse(null)} />}
       {addSecFor     && <SectionModal courseCode={addSecFor}  onSave={handleAddSection} onClose={() => setAddSecFor(null)} />}
       {editSec       && <SectionModal section={editSec} courseCode={editSec.course_code} onSave={handleEditSection} onClose={() => setEditSec(null)} />}
+      {editingProgramModel && (
+        <ProgramModelEditor
+          programId={editingProgramModel}
+          onClose={() => { setEditingProgramModel(null); flash('Done editing program model.'); }}
+        />
+      )}
     </div>
   );
 }

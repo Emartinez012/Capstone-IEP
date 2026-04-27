@@ -1,13 +1,49 @@
-.gemini/
+# ── Dependencies / build artifacts ─────────────────────────────────────────────
 node_modules/
-.env
 dist/
 build/
+coverage/
+.cache/
+*.tsbuildinfo
+
+# ── Environment ────────────────────────────────────────────────────────────────
+# Tracked: .env.example, .env.remote.example
+.env
+.env.local
+.env.*.local
+
+# ── Stale SQLite database (project uses Postgres now) ──────────────────────────
+*.db
 *.db-shm
 *.db-wal
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Tooling caches ─────────────────────────────────────────────────────────────
+.npm/
+.yarn/
+
+# ── Editor / OS junk ───────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# ── Local AI tooling ───────────────────────────────────────────────────────────
+.gemini/
 .claude/
 .claudeignore
 claude.md
 claude.log
 CLAUDE.md
 CLAUDE.log
+
+# ── Project documentation / scratch not required to run ────────────────────────
+PROFESSOR_MEETING_IMPLEMENTATION_PLAN.md
+Computer Science (AA) to Applied Artificial Intelligence (BS) sequence.sql

@@ -256,6 +256,161 @@ ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS courses_per_semester INTEG
 ALTER TABLE schedule_items ALTER COLUMN course_code DROP NOT NULL;
 ALTER TABLE schedule_items DROP CONSTRAINT IF EXISTS schedule_items_course_code_fkey;
 
+
+-- ── 8. PROGRAM MODEL FOUNDATIONS (Phase 1) ───────────────────────────────────
+-- Tables and columns introduced by the M2 client meeting: a degree program is
+-- now a faculty-authored, priority-ordered list of course slots with explicit
+-- level/elective metadata. Phase 1 only creates the schema — no code reads
+-- these yet (that is Phase 6: IEPGeneratorService).
+
+-- Versioned program model header (one active model per program at a time).
+CREATE TABLE IF NOT EXISTS program_model (
+    id                      UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    program_id              VARCHAR(50) NOT NULL REFERENCES degree_programs(degree_code) ON DELETE CASCADE,
+    version                 INTEGER NOT NULL DEFAULT 1,
+    effective_term          VARCHAR(10),
+    created_by              UUID REFERENCES users(user_id),
+    is_active               BOOLEAN NOT NULL DEFAULT FALSE,
+    total_credits_required  INTEGER,
+    created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at              TIMESTAMP
+);
+
+-- Idempotent for live containers created before the column existed.
+ALTER TABLE program_model ADD COLUMN IF NOT EXISTS total_credits_required INTEGER;
+
+-- Backfill from legacy degree_models so existing rows have a sensible value.
+UPDATE program_model pm
+SET total_credits_required = dm.total_credits_required
+FROM degree_models dm
+WHERE pm.program_id = dm.degree_code
+  AND pm.total_credits_required IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_program_model_active
+    ON program_model (program_id) WHERE is_active = TRUE;
+
+-- One row per slot in the program model, in faculty-authored priority order.
+-- course_id is NULL for pure category placeholders; default_course_id +
+-- allowed_course_ids are populated for elective slots.
+CREATE TABLE IF NOT EXISTS program_model_row (
+    id                  UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    program_model_id    UUID NOT NULL REFERENCES program_model(id) ON DELETE CASCADE,
+    priority            INTEGER NOT NULL,
+    course_id           VARCHAR(20) REFERENCES courses(course_code),
+    category            VARCHAR(50),
+    level               INTEGER NOT NULL DEFAULT 1,
+    is_elective         BOOLEAN NOT NULL DEFAULT FALSE,
+    default_course_id   VARCHAR(20) REFERENCES courses(course_code),
+    allowed_course_ids  VARCHAR(20)[],
+    term_length         VARCHAR(20) DEFAULT 'FULL_16_WEEK',
+    offered_in_summer   BOOLEAN NOT NULL DEFAULT TRUE,
+    CONSTRAINT uq_program_model_row_priority UNIQUE (program_model_id, priority)
+);
+
+-- Structured per-semester notes emitted by the IEP generator.
+CREATE TABLE IF NOT EXISTS iep_note (
+    id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    schedule_id     UUID NOT NULL REFERENCES generated_schedules(schedule_id) ON DELETE CASCADE,
+    semester_number INTEGER NOT NULL,
+    code            VARCHAR(60) NOT NULL,
+    severity        VARCHAR(10) NOT NULL,
+    message         TEXT NOT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Separate fall/spring vs. summer targets; pinned program model; new/transfer flag.
+ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS takes_summer               BOOLEAN DEFAULT FALSE;
+ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS target_courses_fall_spring INTEGER DEFAULT 3;
+ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS target_credits_fall_spring INTEGER DEFAULT 12;
+ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS target_courses_summer      INTEGER DEFAULT 2;
+ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS target_credits_summer      INTEGER DEFAULT 6;
+ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS selected_program_model_id  UUID REFERENCES program_model(id);
+ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS student_type               VARCHAR(10) DEFAULT 'new';
+
+-- Lab pairing detection + 8-week term support.
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS has_embedded_lab BOOLEAN DEFAULT FALSE;
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS lab_course_id    VARCHAR(20) REFERENCES courses(course_code);
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS term_length      VARCHAR(20) DEFAULT 'FULL_16_WEEK';
+
+-- Indexes for new FK columns and lookup paths.
+CREATE INDEX IF NOT EXISTS idx_program_model_program        ON program_model(program_id);
+CREATE INDEX IF NOT EXISTS idx_program_model_row_model      ON program_model_row(program_model_id);
+CREATE INDEX IF NOT EXISTS idx_program_model_row_course     ON program_model_row(course_id);
+CREATE INDEX IF NOT EXISTS idx_iep_note_schedule            ON iep_note(schedule_id);
+CREATE INDEX IF NOT EXISTS idx_student_profiles_program_model
+    ON student_profiles(selected_program_model_id);
+
+-- Value constraints in lieu of full PostgreSQL ENUM types. Kept as CHECKs so a
+-- new category can be added with one ALTER instead of an ALTER TYPE migration.
+-- ResolutionSource is intentionally deferred to Phase 8 (its column does not
+-- exist yet).
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_courses_term_length') THEN
+        ALTER TABLE courses
+            ADD CONSTRAINT chk_courses_term_length
+            CHECK (term_length IN ('FULL_16_WEEK', 'FIRST_8_WEEK', 'SECOND_8_WEEK'));
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_program_model_row_term_length') THEN
+        ALTER TABLE program_model_row
+            ADD CONSTRAINT chk_program_model_row_term_length
+            CHECK (term_length IN ('FULL_16_WEEK', 'FIRST_8_WEEK', 'SECOND_8_WEEK'));
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_student_profiles_student_type') THEN
+        ALTER TABLE student_profiles
+            ADD CONSTRAINT chk_student_profiles_student_type
+            CHECK (student_type IN ('new', 'transfer', 'returning'));
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_iep_note_severity') THEN
+        ALTER TABLE iep_note
+            ADD CONSTRAINT chk_iep_note_severity
+            CHECK (severity IN ('info', 'warning'));
+    END IF;
+END $$;
+
+
+-- ── 9. PHASE 8 — ELECTIVE RESOLUTION TRACKING ────────────────────────────────
+-- schedule_items learns three new columns so the GET-plan response carries
+-- enough metadata for the ElectivePicker UI, and so persistence captures
+-- whether a slot is the faculty default, a student override, or unresolved.
+
+ALTER TABLE schedule_items ADD COLUMN IF NOT EXISTS is_elective       BOOLEAN DEFAULT FALSE;
+ALTER TABLE schedule_items ADD COLUMN IF NOT EXISTS resolution_source VARCHAR(30);
+ALTER TABLE schedule_items ADD COLUMN IF NOT EXISTS source_row_id     UUID REFERENCES program_model_row(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_schedule_items_source_row
+    ON schedule_items(source_row_id);
+
+-- Phase 1 deferred ResolutionSource until the column existed; here it does.
+-- Phase 9 adds 'advisor_resolved' to the allowed set — drop and recreate so
+-- the constraint reflects the latest enum surface.
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_schedule_items_resolution_source') THEN
+        ALTER TABLE schedule_items DROP CONSTRAINT chk_schedule_items_resolution_source;
+    END IF;
+    ALTER TABLE schedule_items
+        ADD CONSTRAINT chk_schedule_items_resolution_source
+        CHECK (resolution_source IS NULL
+               OR resolution_source IN ('required', 'elective_default', 'elective_chosen',
+                                        'unresolved', 'advisor_resolved'));
+END $$;
+
+
+-- ── 10. PHASE 9 — UNRESOLVED-SLOT REASON + CREDIT-BANNER METADATA ─────────────
+-- schedule_items learns a free-text reason column. Populated only for rows
+-- where resolution_source = 'unresolved' so the GET-plan response can surface
+-- the machine-emitted explanation (e.g., "Prerequisites for X cannot be
+-- satisfied"). Required and elective rows leave it NULL.
+
+ALTER TABLE schedule_items ADD COLUMN IF NOT EXISTS reason TEXT;
+
 -- =============================================================================
 -- END OF MIGRATION
 -- =============================================================================

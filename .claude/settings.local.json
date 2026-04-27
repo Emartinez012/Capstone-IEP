@@ -30,7 +30,13 @@
       "PowerShell(Get-ChildItem *)",
       "PowerShell(node server/tests/verify-programs.js)",
       "PowerShell(Get-Command *)",
-      "PowerShell(docker exec backend-service *)"
+      "PowerShell(docker exec backend-service *)",
+      "Bash(\"C:/Users/Towel/Documents/GitHub/Capstone-IEP/client/node_modules/.bin/eslint\" \"C:/Users/Towel/Documents/GitHub/Capstone-IEP/client/src/pages/StudentOnboarding.jsx\")",
+      "Bash(cmd.exe /c \"npx vite build\")",
+      "Bash(cmd.exe //c \"npx vite build\")",
+      "Bash(docker cp *)",
+      "Bash(curl -s http://localhost:3001/api/majors)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3001/api/majors)"
     ]
   }
 }

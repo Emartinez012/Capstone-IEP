@@ -40,6 +40,12 @@ router.get('/:id', async (req, res) => {
                 u.last_name,
                 COALESCE(sp.courses_per_semester, 4) AS courses_per_semester,
                 sp.starting_term,
+                sp.takes_summer,
+                sp.target_courses_fall_spring,
+                sp.target_credits_fall_spring,
+                sp.target_courses_summer,
+                sp.target_credits_summer,
+                sp.student_type,
                 dp.program_name AS major_name
             FROM student_profiles sp
             JOIN users u ON sp.user_id = u.user_id
@@ -71,7 +77,6 @@ router.put('/:id', async (req, res) => {
         target_credits,
         degree_code,
         starting_term,
-        opt_out_summer,
         is_transfer,
         completed_courses,
         preferred_modality,
@@ -79,20 +84,47 @@ router.put('/:id', async (req, res) => {
         secondary_campus_location,
         preferred_time_slot,
         preferred_term_durations,
+        // M2 summer fields — onboarding sends takes_summer; the dashboard
+        // profile editor still sends opt_out_summer. Whichever arrives wins;
+        // the other is derived. Keeps both columns in sync until Phase 6.
+        takes_summer,
+        opt_out_summer,
+        target_courses_summer,
+        target_credits_summer,
     } = req.body;
+
+    const takesSummer = takes_summer !== undefined
+        ? !!takes_summer
+        : (opt_out_summer !== undefined ? !opt_out_summer : false);
+    const optOutSummer = !takesSummer;
+    const fsCredits      = target_credits;
+    const fsCourses      = Math.round(target_credits / 3);
+    const summerCourses  = target_courses_summer ?? 2;
+    const summerCredits  = target_credits_summer ?? 6;
+    const studentType    = is_transfer ? 'transfer' : 'new';
 
     const client = await db.getClient();
     try {
         await client.query('BEGIN');
 
-        // Resolve the published degree model for the chosen program
-        const modelRes = await client.query(
+        // Resolve the published degree model for the chosen program (legacy)
+        const degreeModelRes = await client.query(
             `SELECT model_id FROM degree_models
              WHERE degree_code = $1
              ORDER BY is_published DESC, version_number DESC LIMIT 1`,
             [degree_code]
         );
-        const modelId = modelRes.rows[0]?.model_id || null;
+        const degreeModelId = degreeModelRes.rows[0]?.model_id || null;
+
+        // Resolve the active M2 program_model for the chosen program. New
+        // signups land on the Phase 6 IEPGeneratorService path immediately.
+        const programModelRes = await client.query(
+            `SELECT id FROM program_model
+             WHERE program_id = $1 AND is_active = true
+             LIMIT 1`,
+            [degree_code]
+        );
+        const programModelId = programModelRes.rows[0]?.id || null;
 
         await client.query(`
             UPDATE student_profiles
@@ -108,21 +140,35 @@ router.put('/:id', async (req, res) => {
                 secondary_campus_location   = $10,
                 preferred_time_slot         = $11,
                 preferred_term_durations    = $12,
+                takes_summer                = $13,
+                target_courses_fall_spring  = $14,
+                target_credits_fall_spring  = $15,
+                target_courses_summer       = $16,
+                target_credits_summer       = $17,
+                student_type                = $18,
+                selected_program_model_id   = $19,
                 updated_at                  = CURRENT_TIMESTAMP
-            WHERE user_id = $13
+            WHERE user_id = $20
         `, [
-            target_credits,
-            Math.round(target_credits / 3),
+            fsCredits,
+            fsCourses,
             degree_code,
-            modelId,
+            degreeModelId,
             starting_term,
-            opt_out_summer                ?? false,
+            optOutSummer,
             is_transfer                   ?? false,
             JSON.stringify(preferred_modality        || []),
             preferred_campus_location     || '',
             secondary_campus_location     || null,
             JSON.stringify(preferred_time_slot       || { blocks: [], pattern: '' }),
             JSON.stringify(preferred_term_durations  || [16]),
+            takesSummer,
+            fsCourses,
+            fsCredits,
+            summerCourses,
+            summerCredits,
+            studentType,
+            programModelId,
             studentId,
         ]);
 
@@ -182,6 +228,12 @@ router.get('/:id/profile', async (req, res) => {
                 dp.program_name     AS major_name,
                 sp.target_credits,
                 sp.opt_out_summer,
+                sp.takes_summer,
+                sp.target_courses_fall_spring,
+                sp.target_credits_fall_spring,
+                sp.target_courses_summer,
+                sp.target_credits_summer,
+                sp.student_type,
                 sp.is_transfer,
                 sp.preferred_modality,
                 sp.preferred_campus_location,
@@ -238,6 +290,12 @@ router.get('/:id/profile', async (req, res) => {
             target_credits:             row.target_credits,
             gpa,
             opt_out_summer:             row.opt_out_summer,
+            takes_summer:               row.takes_summer,
+            target_courses_fall_spring: row.target_courses_fall_spring,
+            target_credits_fall_spring: row.target_credits_fall_spring,
+            target_courses_summer:      row.target_courses_summer,
+            target_credits_summer:      row.target_credits_summer,
+            student_type:               row.student_type,
             is_transfer:                row.is_transfer,
             preferred_modality:         row.preferred_modality         || [],
             preferred_campus_location:  row.preferred_campus_location  || '',

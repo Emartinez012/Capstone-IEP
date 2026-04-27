@@ -754,3 +754,138 @@ COMMIT;
 --    treat either as satisfying the prereq. You may want a prereq_alternatives
 --    column or a separate table for OR-prerequisite groups.
 -- =============================================================================
+
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- SECTION 5 — BS-AAI PROGRAM MODEL (priority-ordered sequence guide)
+--
+-- Hand-authored 9-semester sequence sourced from
+-- "Computer Science (AA) to Applied Artificial Intelligence (BS) sequence.sql".
+-- Replaces what server/seed.js's seedProgramModelFor would otherwise build
+-- from degree_requirements/requirement_levels for BS-AAI. seed.js detects
+-- non-empty program_model_row entries and skips its rebuild for this program.
+--
+-- Code normalization applied:
+--   • spaces stripped from all course codes (matches existing seed style)
+--   • new file's "CAI 2100C" (Intro to AI) → CAI1001C (existing AI Thinking)
+--   • new file's "CAI 2300C" (ML Foundations) → CAI2100C (existing ML Foundations)
+--
+-- Two new courses added to courses catalog (CAP4770 and CEN4010 are 3-credit
+-- variants distinct from the existing CAP4767 / CET3383C / CEN4025C entries).
+-- ══════════════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.courses (course_code, title, credits, prerequisite_codes, corequisite_codes)
+VALUES
+    ('SLS1106', 'First Year Experience Seminar',  1, NULL, NULL),
+    ('CAP4770', 'Data Mining',                    3, NULL, NULL),
+    ('CEN4010', 'Software Engineering',           3, NULL, NULL)
+ON CONFLICT (course_code) DO NOTHING;
+
+
+-- Reset BS-AAI's program_model so re-applying this file produces a clean
+-- state. Order matters because student_profiles.selected_program_model_id has
+-- a NO-ACTION FK at the row, NOT a CASCADE, and the partial unique index
+-- idx_program_model_active forbids two active rows for the same program_id:
+--   1) Deactivate every existing BS-AAI program_model (frees the active slot).
+--   2) Upsert the curated row with is_active = FALSE (also free).
+--   3) Repoint any student profile on BS-AAI to the curated row.
+--   4) Delete the now-orphan, deactivated BS-AAI program_models.
+--   5) Activate the curated row.
+--   6) Wipe + re-insert program_model_row entries for the curated row.
+
+UPDATE public.program_model SET is_active = FALSE WHERE program_id = 'BS-AAI';
+
+INSERT INTO public.program_model
+    (id, program_id, version, effective_term, is_active, total_credits_required)
+VALUES
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 'BS-AAI', 1, '2257', FALSE, 120)
+ON CONFLICT (id) DO UPDATE
+    SET program_id              = EXCLUDED.program_id,
+        is_active               = FALSE,
+        total_credits_required  = EXCLUDED.total_credits_required;
+
+UPDATE public.student_profiles
+   SET selected_program_model_id = 'a1b2c3d4-e5f6-7890-1234-56789abcdef0'
+ WHERE degree_code = 'BS-AAI';
+
+DELETE FROM public.program_model
+ WHERE program_id = 'BS-AAI'
+   AND id <> 'a1b2c3d4-e5f6-7890-1234-56789abcdef0';
+
+DELETE FROM public.program_model_row
+ WHERE program_model_id = 'a1b2c3d4-e5f6-7890-1234-56789abcdef0';
+
+
+INSERT INTO public.program_model_row
+    (program_model_id, priority, course_id, category, level, is_elective,
+     default_course_id, allowed_course_ids, term_length, offered_in_summer)
+VALUES
+    -- ── Semester 1 (Fall) ───────────────────────────────────────────────────
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  10, 'ENC1101',  'GEN_ED_COMM',     1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  20, 'MAC1105',  'GEN_ED_MATH',     1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  30, 'SLS1106',  'GEN_ED_ELECTIVE', 1, FALSE, NULL, NULL, 'FIRST_8_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  40, 'CAI1001C', 'MAJOR',           1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  50, 'COP1047C', 'MAJOR',           1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+
+    -- ── Semester 2 (Spring) ─────────────────────────────────────────────────
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  60, 'MAC1147',  'MAJOR_PREP',      1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  70, 'ENC1102',  'GEN_ED_COMM',     1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  80, 'COP1334',  'MAJOR',           1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0',  90, 'STA2023',  'MAJOR_PREP',      1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+
+    -- ── Semester 3 (Summer) ─────────────────────────────────────────────────
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 100, 'CAI2100C', 'MAJOR',           1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 110, 'COP2800',  'MAJOR',           1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+
+    -- ── Semester 4 (Fall) ───────────────────────────────────────────────────
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 120, 'MAC2311',  'MAJOR_PREP',       1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 130, 'PHY1025',  'GEN_ED_SCIENCE',   1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 140, 'CAI3821C', 'MAJOR',            2, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 150, 'CAI2840C', 'MAJOR',            1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+
+    -- ── Semester 5 (Spring) ─────────────────────────────────────────────────
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 160, 'MAC2312',  'MAJOR_PREP',       1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 170, 'CAI3822C', 'MAJOR',            2, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 180, 'COP3530',  'MAJOR',            2, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 190, 'CAI3303C', 'MAJOR',            2, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+
+    -- ── Semester 6 (Summer) ─────────────────────────────────────────────────
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 200, 'PHY2048',  'GEN_ED_SCIENCE',     1, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 210, 'PHY2048L', 'GEN_ED_SCIENCE_LAB', 1, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 220, 'PHI2680',  'GEN_ED_HUMANITIES',  1, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+
+    -- ── Semester 7 (Fall) ───────────────────────────────────────────────────
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 230, 'CHM1045',  'GEN_ED_SCIENCE',     1, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 240, 'CHM1045L', 'GEN_ED_SCIENCE_LAB', 1, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 250, 'CAI4505C', 'MAJOR',              2, FALSE, NULL, NULL, 'FULL_16_WEEK', FALSE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 260, 'CAI4510C', 'MAJOR',              2, FALSE, NULL, NULL, 'FULL_16_WEEK', FALSE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 270, 'CAI4830C', 'MAJOR',              2, FALSE, NULL, NULL, 'FULL_16_WEEK', FALSE),
+
+    -- ── Semester 8 (Spring) ─────────────────────────────────────────────────
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 280, 'CAI4420C', 'MAJOR',                2, FALSE, NULL, NULL, 'FULL_16_WEEK', FALSE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 290, 'CAI4525C', 'MAJOR',                2, FALSE, NULL, NULL, 'FULL_16_WEEK', FALSE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 300, NULL,       'PROGRAM_ELECTIVE',     2, TRUE,  'CAP3330', ARRAY['CAP3330','STA3164'],  'FULL_16_WEEK', TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 310, NULL,       'GEN_ED_SOCIAL_SCIENCE',1, TRUE,  'AMH2010', ARRAY['AMH2010','POS2041'],  'FULL_16_WEEK', TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 320, NULL,       'GEN_ED_HUMANITIES',    1, TRUE,  'ARH1000', ARRAY['ARH1000','HUM1020'],  'FULL_16_WEEK', TRUE),
+
+    -- ── Semester 9 (Fall) ───────────────────────────────────────────────────
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 330, 'CAI4950C', 'CAPSTONE',             2, FALSE, NULL,      NULL,                        'FULL_16_WEEK', FALSE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 340, NULL,       'GEN_ED_ORAL_COMM',     1, TRUE,  'SPC1017', ARRAY['SPC1017','ENC2300'],  'FULL_16_WEEK', TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 350, NULL,       'GEN_ED_SOCIAL_SCIENCE',1, TRUE,  'ECO2013', ARRAY['ECO2013','PSY2012'],  'FULL_16_WEEK', TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 360, NULL,       'GEN_ED_HUMANITIES',    1, TRUE,  'LIT2000', ARRAY['LIT2000','MUL1010'],  'FULL_16_WEEK', TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 370, NULL,       'PROGRAM_ELECTIVE',     2, TRUE,  'CAP4770', ARRAY['CAP4770','CEN4010'],  'FULL_16_WEEK', TRUE),
+    ('a1b2c3d4-e5f6-7890-1234-56789abcdef0', 380, NULL,       'PROGRAM_ELECTIVE',     2, TRUE,  'CEN4010', ARRAY['CEN4010','CAP4770'],  'FULL_16_WEEK', TRUE)
+ON CONFLICT (program_model_id, priority) DO NOTHING;
+
+
+-- Now that the curated row is fully populated, flip it active. Earlier rows
+-- for BS-AAI were deactivated above (or deleted), so the partial unique
+-- index idx_program_model_active is satisfied by this single TRUE row.
+UPDATE public.program_model
+   SET is_active = TRUE
+ WHERE id = 'a1b2c3d4-e5f6-7890-1234-56789abcdef0';
+
+
+-- =============================================================================
+-- END OF FILE
+-- =============================================================================

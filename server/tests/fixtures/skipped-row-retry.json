@@ -1,0 +1,38 @@
+{
+  "name": "Skipped row is retried in the next semester after its prereq is satisfied",
+  "shape": "iep_generator",
+  "description": "Four courses: P1 (no prereq), P2 (no prereq), DEPENDENT (prereq P1), and FILLER (no prereq). Target is 2 courses/sem. In semester 1, DEPENDENT (priority 3) cannot be placed because P1 is also being scheduled this semester at the same level — the M2 algorithm must skip DEPENDENT and try FILLER instead, then retry DEPENDENT in semester 2 once P1 is in the completed set. After Phase 6, DEPENDENT lands in semester 2, not semester 1, and is not silently dropped.",
+  "input": {
+    "programModel": {
+      "program_id": "TEST-RETRY",
+      "total_credits_required": 12,
+      "rows": [
+        { "priority": 1, "course_id": "P1",        "level": 1, "is_elective": false, "category": "MAJOR", "credits": 3, "prerequisites": [] },
+        { "priority": 2, "course_id": "P2",        "level": 1, "is_elective": false, "category": "MAJOR", "credits": 3, "prerequisites": [] },
+        { "priority": 3, "course_id": "DEPENDENT", "level": 2, "is_elective": false, "category": "MAJOR", "credits": 3, "prerequisites": ["P1"] },
+        { "priority": 4, "course_id": "FILLER",    "level": 1, "is_elective": false, "category": "MAJOR", "credits": 3, "prerequisites": [] }
+      ]
+    },
+    "studentProfile": {
+      "starting_term": "261",
+      "takes_summer": false,
+      "target_courses_fall_spring": 2,
+      "target_credits_fall_spring": 6,
+      "target_courses_summer": 0,
+      "target_credits_summer": 0
+    },
+    "completedCourses": []
+  },
+  "expectations": {
+    "placements": [
+      { "course_id": "P1",        "semester": 1 },
+      { "course_id": "P2",        "semester": 1 },
+      { "course_id": "DEPENDENT", "semester": 2 },
+      { "course_id": "FILLER",    "semester": 2 }
+    ],
+    "skip_then_retry": {
+      "skipped_in_semester_1": "DEPENDENT",
+      "placed_in_semester_2":  "DEPENDENT"
+    }
+  }
+}

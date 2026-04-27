@@ -145,7 +145,12 @@ CREATE TABLE "public"."courses" (
     deleted_at timestamp without time zone,
     prerequisite_codes text,
     corequisite_codes text,
-    CONSTRAINT courses_pkey PRIMARY KEY (course_code)
+    has_embedded_lab boolean DEFAULT false,
+    lab_course_id character varying(20),
+    term_length character varying(20) DEFAULT 'FULL_16_WEEK',
+    CONSTRAINT courses_pkey PRIMARY KEY (course_code),
+    CONSTRAINT courses_lab_course_id_fkey FOREIGN KEY (lab_course_id) REFERENCES courses(course_code),
+    CONSTRAINT chk_courses_term_length CHECK (term_length IN ('FULL_16_WEEK', 'FIRST_8_WEEK', 'SECOND_8_WEEK'))
 );
 
 CREATE TABLE "public"."degree_models" (
@@ -235,6 +240,54 @@ CREATE TABLE "public"."iep_status_history" (
     CONSTRAINT iep_status_history_pkey PRIMARY KEY (history_id)
 );
 
+CREATE TABLE "public"."iep_note" (
+    id              uuid DEFAULT uuid_generate_v4() NOT NULL,
+    schedule_id     uuid NOT NULL,
+    semester_number integer NOT NULL,
+    code            character varying(60) NOT NULL,
+    severity        character varying(10) NOT NULL,
+    message         text NOT NULL,
+    created_at      timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT iep_note_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES generated_schedules(schedule_id) ON DELETE CASCADE,
+    CONSTRAINT iep_note_pkey PRIMARY KEY (id),
+    CONSTRAINT chk_iep_note_severity CHECK (severity IN ('info', 'warning'))
+);
+
+CREATE TABLE "public"."program_model" (
+    id                      uuid DEFAULT uuid_generate_v4() NOT NULL,
+    program_id              character varying(50) NOT NULL,
+    version                 integer NOT NULL DEFAULT 1,
+    effective_term          character varying(10),
+    created_by              uuid,
+    is_active               boolean NOT NULL DEFAULT false,
+    total_credits_required  integer,
+    created_at              timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    deleted_at              timestamp without time zone,
+    CONSTRAINT program_model_program_id_fkey FOREIGN KEY (program_id) REFERENCES degree_programs(degree_code) ON DELETE CASCADE,
+    CONSTRAINT program_model_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(user_id),
+    CONSTRAINT program_model_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE "public"."program_model_row" (
+    id                  uuid DEFAULT uuid_generate_v4() NOT NULL,
+    program_model_id    uuid NOT NULL,
+    priority            integer NOT NULL,
+    course_id           character varying(20),
+    category            character varying(50),
+    level               integer NOT NULL DEFAULT 1,
+    is_elective         boolean NOT NULL DEFAULT false,
+    default_course_id   character varying(20),
+    allowed_course_ids  character varying(20)[],
+    term_length         character varying(20) DEFAULT 'FULL_16_WEEK',
+    offered_in_summer   boolean NOT NULL DEFAULT true,
+    CONSTRAINT program_model_row_model_fkey FOREIGN KEY (program_model_id) REFERENCES program_model(id) ON DELETE CASCADE,
+    CONSTRAINT program_model_row_course_fkey FOREIGN KEY (course_id) REFERENCES courses(course_code),
+    CONSTRAINT program_model_row_default_course_fkey FOREIGN KEY (default_course_id) REFERENCES courses(course_code),
+    CONSTRAINT uq_program_model_row_priority UNIQUE (program_model_id, priority),
+    CONSTRAINT program_model_row_pkey PRIMARY KEY (id),
+    CONSTRAINT chk_program_model_row_term_length CHECK (term_length IN ('FULL_16_WEEK', 'FIRST_8_WEEK', 'SECOND_8_WEEK'))
+);
+
 CREATE TABLE "public"."permissions" (
     permission_id integer DEFAULT nextval('permissions_permission_id_seq'::regclass) NOT NULL,
     permission_name character varying(50) NOT NULL,
@@ -260,16 +313,21 @@ CREATE TABLE "public"."role_permissions" (
 CREATE TABLE "public"."schedule_items" (
     item_id uuid DEFAULT uuid_generate_v4() NOT NULL,
     schedule_id uuid NOT NULL,
-    course_code character varying(20) NOT NULL,
+    course_code character varying(20),
     semester_term character varying(20),
     semester_year integer,
     assigned_modality character varying(50),
     deleted_at timestamp without time zone,
     section_id uuid,
+    is_elective boolean DEFAULT false,
+    resolution_source character varying(30),
+    source_row_id uuid,
+    reason text,
     CONSTRAINT schedule_items_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES generated_schedules(schedule_id) ON DELETE CASCADE,
-    CONSTRAINT schedule_items_course_code_fkey FOREIGN KEY (course_code) REFERENCES courses(course_code),
     CONSTRAINT schedule_items_section_id_fkey FOREIGN KEY (section_id) REFERENCES course_sections(section_id) ON DELETE SET NULL,
-    CONSTRAINT schedule_items_pkey PRIMARY KEY (item_id)
+    CONSTRAINT schedule_items_source_row_fkey FOREIGN KEY (source_row_id) REFERENCES program_model_row(id) ON DELETE SET NULL,
+    CONSTRAINT schedule_items_pkey PRIMARY KEY (item_id),
+    CONSTRAINT chk_schedule_items_resolution_source CHECK (resolution_source IS NULL OR resolution_source IN ('required', 'elective_default', 'elective_chosen', 'unresolved', 'advisor_resolved'))
 );
 
 CREATE TABLE "public"."student_profiles" (
@@ -295,12 +353,21 @@ CREATE TABLE "public"."student_profiles" (
     is_transfer boolean DEFAULT false,
     secondary_campus_location character varying(100) DEFAULT NULL,
     gpa numeric(3,2) DEFAULT NULL,
+    takes_summer boolean DEFAULT false,
+    target_courses_fall_spring integer DEFAULT 3,
+    target_credits_fall_spring integer DEFAULT 12,
+    target_courses_summer integer DEFAULT 2,
+    target_credits_summer integer DEFAULT 6,
+    selected_program_model_id uuid,
+    student_type character varying(10) DEFAULT 'new',
     CONSTRAINT student_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id),
     CONSTRAINT student_profiles_current_degree_model_id_fkey FOREIGN KEY (current_degree_model_id) REFERENCES degree_models(model_id),
     CONSTRAINT student_profiles_degree_code_fkey FOREIGN KEY (degree_code) REFERENCES degree_programs(degree_code),
     CONSTRAINT student_profiles_assigned_advisor_fkey FOREIGN KEY (assigned_advisor_id) REFERENCES users(user_id),
+    CONSTRAINT student_profiles_selected_program_model_fkey FOREIGN KEY (selected_program_model_id) REFERENCES program_model(id),
     CONSTRAINT student_profiles_pkey PRIMARY KEY (user_id),
-    CONSTRAINT student_profiles_student_id_key UNIQUE (student_id)
+    CONSTRAINT student_profiles_student_id_key UNIQUE (student_id),
+    CONSTRAINT chk_student_profiles_student_type CHECK (student_type IN ('new', 'transfer', 'returning'))
 );
 
 CREATE TABLE "public"."user_sessions" (
@@ -417,6 +484,15 @@ CREATE INDEX IF NOT EXISTS idx_generated_schedules_student   ON public.generated
 CREATE INDEX IF NOT EXISTS idx_course_substitutions_student  ON public.course_substitutions USING btree (student_user_id);
 CREATE INDEX IF NOT EXISTS idx_course_substitutions_reviewer ON public.course_substitutions USING btree (assigned_reviewer_id);
 CREATE INDEX IF NOT EXISTS idx_advisor_program_assignments   ON public.advisor_program_assignments USING btree (advisor_user_id);
+
+-- Phase 1 — program model foundations
+CREATE UNIQUE INDEX IF NOT EXISTS idx_program_model_active   ON public.program_model (program_id) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_program_model_program         ON public.program_model USING btree (program_id);
+CREATE INDEX IF NOT EXISTS idx_program_model_row_model       ON public.program_model_row USING btree (program_model_id);
+CREATE INDEX IF NOT EXISTS idx_program_model_row_course      ON public.program_model_row USING btree (course_id);
+CREATE INDEX IF NOT EXISTS idx_iep_note_schedule             ON public.iep_note USING btree (schedule_id);
+CREATE INDEX IF NOT EXISTS idx_student_profiles_program_model
+    ON public.student_profiles USING btree (selected_program_model_id);
 
 -- Extension: pgcrypto
 
