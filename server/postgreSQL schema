@@ -3,16 +3,43 @@
 
 CREATE EXTENSION IF NOT EXISTS plpgsql;
 
-CREATE EXTENSION IF NOT EXISTS uuid-ossp;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE SCHEMA "public";
 
+-- ── ENUM TYPES ───────────────────────────────────────────────────────────────
+
+DO $$ BEGIN
+    CREATE TYPE schedule_status_type AS ENUM (
+        'Temporary', 'Official', 'Archived', 'Submitted',
+        'Pending_Advisor_Review', 'Pending_Student_Acceptance'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE user_role_type AS ENUM (
+        'Student', 'Advisor', 'Admin', 'Faculty'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE student_status_type AS ENUM (
+        'Active', 'Inactive', 'Graduated', 'OnLeave'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE substitution_status_type AS ENUM (
+        'Pending', 'Approved', 'Rejected', 'Under Review'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 CREATE TABLE "public"."academic_history" (
     history_id uuid DEFAULT uuid_generate_v4() NOT NULL,
-    user_id uuid,
-    course_code character varying(20),
+    user_id uuid NOT NULL,
+    course_code character varying(20) NOT NULL,
     term_taken character varying(20),
     grade character(2),
     credits_earned integer,
@@ -70,16 +97,20 @@ CREATE MATERIALIZED VIEW "public"."course_demand_forecast" AS
   GROUP BY si.semester_term, si.semester_year, si.course_code, c.title; WITH DATA;
 
 CREATE TABLE "public"."course_sections" (
-    section_id uuid DEFAULT uuid_generate_v4() NOT NULL,
-    course_code character varying(20) NOT NULL,
-    semester_term character varying(20) NOT NULL,
-    semester_year integer NOT NULL,
-    modality character varying(50) NOT NULL,
-    duration_weeks integer NOT NULL,
-    days_of_week character varying(20),
-    start_time time without time zone,
-    end_time time without time zone,
-    capacity integer DEFAULT 30,
+    section_id     uuid DEFAULT gen_random_uuid() NOT NULL,
+    course_code    character varying(20) NOT NULL,
+    section_number character varying(10) NOT NULL,
+    instructor     character varying(150),
+    campus         character varying(100),
+    modality       character varying(50),
+    days           character varying(20),
+    start_time     character varying(10),
+    end_time       character varying(10),
+    term_code      character varying(10),
+    capacity       integer DEFAULT 30,
+    enrolled       integer DEFAULT 0,
+    created_at     timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    deleted_at     timestamp without time zone DEFAULT NULL,
     CONSTRAINT course_sections_course_code_fkey FOREIGN KEY (course_code) REFERENCES courses(course_code) ON DELETE CASCADE,
     CONSTRAINT course_sections_pkey PRIMARY KEY (section_id)
 );
@@ -97,6 +128,8 @@ CREATE TABLE "public"."course_substitutions" (
     reviewer_comments text,
     submitted_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     review_date timestamp without time zone,
+    original_course_code character varying(20),
+    reason text,
     CONSTRAINT course_substitutions_model_id_fkey FOREIGN KEY (model_id) REFERENCES degree_models(model_id),
     CONSTRAINT course_substitutions_required_course_code_fkey FOREIGN KEY (required_course_code) REFERENCES courses(course_code),
     CONSTRAINT course_substitutions_student_user_id_fkey FOREIGN KEY (student_user_id) REFERENCES users(user_id),
@@ -142,13 +175,14 @@ CREATE TABLE "public"."degree_programs" (
 
 CREATE TABLE "public"."degree_requirements" (
     requirement_id uuid DEFAULT uuid_generate_v4() NOT NULL,
-    model_id uuid,
-    course_code character varying(20),
+    model_id uuid NOT NULL,
+    course_code character varying(20) NOT NULL,
     priority_value integer NOT NULL,
     is_wildcard boolean DEFAULT false,
     deleted_at timestamp without time zone,
     CONSTRAINT degree_requirements_model_id_fkey FOREIGN KEY (model_id) REFERENCES degree_models(model_id) ON DELETE CASCADE,
     CONSTRAINT degree_requirements_course_code_fkey FOREIGN KEY (course_code) REFERENCES courses(course_code),
+    CONSTRAINT uq_degree_req_model_course UNIQUE (model_id, course_code),
     CONSTRAINT degree_requirements_pkey PRIMARY KEY (requirement_id)
 );
 
@@ -176,24 +210,28 @@ CREATE TABLE "public"."generated_schedules" (
 );
 
 CREATE TABLE "public"."iep_snapshots" (
-    snapshot_id uuid DEFAULT uuid_generate_v4() NOT NULL,
-    schedule_id uuid,
-    snapshot_data jsonb NOT NULL,
-    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT iep_snapshots_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES generated_schedules(schedule_id),
+    snapshot_id     SERIAL NOT NULL,
+    schedule_id     uuid NOT NULL,
+    student_user_id uuid,
+    snapshot_data   jsonb NOT NULL,
+    status          character varying(30) NOT NULL,
+    created_at      timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT iep_snapshots_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES generated_schedules(schedule_id) ON DELETE CASCADE,
+    CONSTRAINT iep_snapshots_student_fkey FOREIGN KEY (student_user_id) REFERENCES users(user_id),
     CONSTRAINT iep_snapshots_pkey PRIMARY KEY (snapshot_id)
 );
 
 CREATE TABLE "public"."iep_status_history" (
-    history_id uuid DEFAULT uuid_generate_v4() NOT NULL,
-    schedule_id uuid,
-    old_status schedule_status_type,
-    new_status schedule_status_type NOT NULL,
-    changed_by_user_id uuid,
-    change_reason text,
-    changed_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    history_id      SERIAL NOT NULL,
+    schedule_id     uuid NOT NULL,
+    student_user_id uuid,
+    status          character varying(30) NOT NULL,
+    changed_by      uuid,
+    notes           text,
+    created_at      timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT iep_status_history_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES generated_schedules(schedule_id) ON DELETE CASCADE,
-    CONSTRAINT iep_status_history_changed_by_user_id_fkey FOREIGN KEY (changed_by_user_id) REFERENCES users(user_id),
+    CONSTRAINT iep_status_history_student_fkey FOREIGN KEY (student_user_id) REFERENCES users(user_id),
+    CONSTRAINT iep_status_history_changed_by_fkey FOREIGN KEY (changed_by) REFERENCES users(user_id),
     CONSTRAINT iep_status_history_pkey PRIMARY KEY (history_id)
 );
 
@@ -221,8 +259,8 @@ CREATE TABLE "public"."role_permissions" (
 
 CREATE TABLE "public"."schedule_items" (
     item_id uuid DEFAULT uuid_generate_v4() NOT NULL,
-    schedule_id uuid,
-    course_code character varying(20),
+    schedule_id uuid NOT NULL,
+    course_code character varying(20) NOT NULL,
     semester_term character varying(20),
     semester_year integer,
     assigned_modality character varying(50),
@@ -253,6 +291,10 @@ CREATE TABLE "public"."student_profiles" (
     target_credits integer DEFAULT 12,
     preferred_term_durations jsonb,
     assigned_advisor_id uuid,
+    starting_term character varying(10) DEFAULT '242',
+    is_transfer boolean DEFAULT false,
+    secondary_campus_location character varying(100) DEFAULT NULL,
+    gpa numeric(3,2) DEFAULT NULL,
     CONSTRAINT student_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id),
     CONSTRAINT student_profiles_current_degree_model_id_fkey FOREIGN KEY (current_degree_model_id) REFERENCES degree_models(model_id),
     CONSTRAINT student_profiles_degree_code_fkey FOREIGN KEY (degree_code) REFERENCES degree_programs(degree_code),
@@ -362,6 +404,19 @@ CREATE UNIQUE INDEX course_sections_pkey ON public.course_sections USING btree (
 CREATE UNIQUE INDEX departments_pkey ON public.departments USING btree (dept_id);
 
 CREATE UNIQUE INDEX advisor_profiles_pkey ON public.advisor_profiles USING btree (user_id);
+
+-- Performance indexes (added via migrations)
+CREATE INDEX IF NOT EXISTS idx_academic_history_user         ON public.academic_history USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_academic_history_course       ON public.academic_history USING btree (course_code);
+CREATE INDEX IF NOT EXISTS idx_degree_requirements_model     ON public.degree_requirements USING btree (model_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_items_schedule       ON public.schedule_items USING btree (schedule_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_items_course         ON public.schedule_items USING btree (course_code);
+CREATE INDEX IF NOT EXISTS idx_student_profiles_degree       ON public.student_profiles USING btree (degree_code);
+CREATE INDEX IF NOT EXISTS idx_student_profiles_model        ON public.student_profiles USING btree (current_degree_model_id);
+CREATE INDEX IF NOT EXISTS idx_generated_schedules_student   ON public.generated_schedules USING btree (student_user_id);
+CREATE INDEX IF NOT EXISTS idx_course_substitutions_student  ON public.course_substitutions USING btree (student_user_id);
+CREATE INDEX IF NOT EXISTS idx_course_substitutions_reviewer ON public.course_substitutions USING btree (assigned_reviewer_id);
+CREATE INDEX IF NOT EXISTS idx_advisor_program_assignments   ON public.advisor_program_assignments USING btree (advisor_user_id);
 
 -- Extension: pgcrypto
 
