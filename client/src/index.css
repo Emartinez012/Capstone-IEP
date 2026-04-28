@@ -3705,6 +3705,45 @@ body {
 .curr-empty { text-align: center; padding: 40px; color: #94a3b8; font-size: 14px; }
 .curr-loading { text-align: center; padding: 40px; color: #94a3b8; }
 
+.curr-program-info {
+  background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.curr-program-info-main {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.curr-program-info-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e40af;
+  background: #dbeafe;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.curr-program-info-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+}
+.curr-program-info-meta {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #475569;
+}
+.curr-program-info-meta strong { color: #334155; font-weight: 600; }
+
 /* --- Advisor Review UI ------------------------------------ */
 .snapshot-note-input {
   width: 100%; padding: 8px 10px; border: 1px solid #d0d9e8;

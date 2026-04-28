@@ -306,6 +306,22 @@ export async function rejectSchedule(scheduleId) {
 
 // --- Curriculum (Chairperson) ------------------------------------------------
 
+export async function createProgram(data) {
+  const res = await fetch(`${BASE}/faculty/programs`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Failed to create program');
+  return body;
+}
+
+export async function deleteProgram(degreeCode) {
+  const res = await fetch(`${BASE}/faculty/programs/${degreeCode}`, { method: 'DELETE' });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Failed to delete program');
+  return body;
+}
+
 export async function getProgramCourses(degreeCode) {
   const res = await fetch(`${BASE}/faculty/programs/${degreeCode}/courses`);
   if (!res.ok) throw new Error('Failed to fetch program courses');
