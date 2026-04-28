@@ -878,6 +878,143 @@ UPDATE public.program_model
  WHERE id = 'a1b2c3d4-e5f6-7890-1234-56789abcdef0';
 
 
+-- ══════════════════════════════════════════════════════════════════════════════
+-- SECTION 6 — BS-ISTS PROGRAM MODEL (priority-ordered sequence guide)
+--
+-- Hand-authored 33-row sequence sourced from
+-- "Information Systems Technology – Software Engineering (BS-IST).sql".
+-- Replaces what server/seed.js's seedProgramModelFor would otherwise build
+-- from degree_requirements/requirement_levels for BS-ISTS.
+--
+-- Code normalization applied:
+--   • spaces stripped from all course codes (matches existing seed style)
+--
+-- Elective handling (per user direction):
+--   The original BS-IST file pinned Group A and Group B electives to specific
+--   real courses (CEN4010, CAP4770, CIS4327, CEN4341, CAP4773). To avoid
+--   credit-count collisions with the BS-AAI integration (which uses 3-credit
+--   CAP4770/CEN4010), Group A and Group B slots resolve to PLACEHOLDER
+--   courses worth 4 credits each. Students/advisors pick the real course
+--   outside the app, or via faculty-edited allowed_course_ids later.
+-- ══════════════════════════════════════════════════════════════════════════════
+
+-- Two real courses that aren't yet in the catalog (used as required rows).
+INSERT INTO public.courses (course_code, title, credits, prerequisite_codes, corequisite_codes)
+VALUES
+    ('COT3100',  'Discrete Structures',                4, NULL, NULL),
+    ('CEN4065C', 'Software Architecture and Design',   4, NULL, NULL)
+ON CONFLICT (course_code) DO NOTHING;
+
+-- Two placeholder courses for the prefix-based Group A and Group B electives.
+-- Title carries the prefix list so a human reading the plan UI sees what
+-- real course this slot is meant to be filled with.
+INSERT INTO public.courses (course_code, title, credits, prerequisite_codes, corequisite_codes)
+VALUES
+    ('GROUP_A_ELEC_4CR',
+     'Program Elective Group A (4 cr) - pick any course with prefix CAI/CAP/CEN/CET/CGS/CIS/CNT/COP/CTS',
+     4, NULL, NULL),
+    ('GROUP_B_ELEC_4CR',
+     'Program Elective Group B (4 cr) - pick a 2/3/4-level course with prefix CAI/CAP/CEN/CET/CGS/CIS/CNT/COP/CTS',
+     4, NULL, NULL)
+ON CONFLICT (course_code) DO NOTHING;
+
+
+-- Reset BS-ISTS's program_model. Order matters (see Section 5 BS-AAI block
+-- for the full explanation): deactivate -> upsert curated row inactive ->
+-- repoint students -> delete others -> wipe rows -> insert -> activate.
+
+UPDATE public.program_model SET is_active = FALSE WHERE program_id = 'BS-ISTS';
+
+INSERT INTO public.program_model
+    (id, program_id, version, effective_term, is_active, total_credits_required)
+VALUES
+    -- 123 = original 120 + 3 cr for PHY1025 added at priority 175 to satisfy
+    -- PHY2048 / PHY2048L's prereq. CET2123C / ETI4480C still have ECET-track
+    -- prereqs that aren't in this sequence (CET1110C, COP2270, CET3126C);
+    -- those are flagged at generation time via PREREQ_OUT_OF_PROGRAM notes
+    -- for faculty review rather than bloating the program.
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 'BS-ISTS', 1, '2257', FALSE, 123)
+ON CONFLICT (id) DO UPDATE
+    SET program_id              = EXCLUDED.program_id,
+        is_active               = FALSE,
+        total_credits_required  = EXCLUDED.total_credits_required;
+
+UPDATE public.student_profiles
+   SET selected_program_model_id = 'b2c3d4e5-f6a7-8901-2345-6789abcdef01'
+ WHERE degree_code = 'BS-ISTS';
+
+DELETE FROM public.program_model
+ WHERE program_id = 'BS-ISTS'
+   AND id <> 'b2c3d4e5-f6a7-8901-2345-6789abcdef01';
+
+DELETE FROM public.program_model_row
+ WHERE program_model_id = 'b2c3d4e5-f6a7-8901-2345-6789abcdef01';
+
+
+INSERT INTO public.program_model_row
+    (program_model_id, priority, course_id, category, level, is_elective,
+     default_course_id, allowed_course_ids, term_length, offered_in_summer)
+VALUES
+    -- ── Level 1: Foundations & Prerequisites ────────────────────────────────
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01',  10, 'ENC1101',  'GEN_ED_COMM',     1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01',  20, 'MAC1105',  'GEN_ED_MATH',     1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01',  30, 'SLS1106',  'GEN_ED_ELECTIVE', 1, FALSE, NULL, NULL, 'FIRST_8_WEEK',  TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01',  40, 'CGS1060C', 'LOWER_DIV_TECH',  1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01',  50, 'CTS1134',  'LOWER_DIV_TECH',  1, FALSE, NULL, NULL, 'FULL_16_WEEK',  TRUE),
+
+    -- ── Level 2: Intro Programming & Intermediate Math ─────────────────────
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01',  60, 'ENC1102',  'GEN_ED_COMM',      2, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01',  70, 'MAC1147',  'MAJOR_PREP',       2, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01',  80, 'COP1334',  'LOWER_DIV_TECH',   2, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01',  90, 'SPC1017',  'GEN_ED_ORAL_COMM', 2, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 100, 'STA2023',  'GEN_ED_MATH',      2, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+
+    -- ── Level 3: Core CS Transitions ───────────────────────────────────────
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 110, 'MAC2311',  'MAJOR_PREP',      3, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 120, 'COP2800',  'LOWER_DIV_TECH',  3, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 130, 'CET2123C', 'LOWER_DIV_TECH',  3, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 140, 'CIS3360',  'MAJOR',           3, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 150, 'COT3100',  'MAJOR',           3, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+
+    -- ── Level 4: Data Structures & State Gen Eds ───────────────────────────
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 160, 'COP3530',  'MAJOR',              4, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 170, 'CGS3763',  'MAJOR',              4, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    -- PHY1025 inserted before PHY2048 / PHY2048L; without it the courses table
+    -- prereq 'PHY1025,MAC2311' on those rows is filtered to just MAC2311 by
+    -- prereqFilter, leaving a PREREQ_OUT_OF_PROGRAM note. Adding it as a
+    -- required row at priority 175 satisfies the prereq cleanly.
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 175, 'PHY1025',  'GEN_ED_SCIENCE',     4, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 180, 'PHY2048',  'GEN_ED_SCIENCE',     4, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 190, 'PHY2048L', 'GEN_ED_SCIENCE_LAB', 4, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 200, 'ARH1000',  'GEN_ED_HUMANITIES',  4, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+
+    -- ── Level 5: Architecture, Robotics & MDC Gen Eds ──────────────────────
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 210, 'CEN4065C', 'MAJOR',                 5, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 220, 'ETI4480C', 'MAJOR',                 5, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 230, 'PHY2049',  'GEN_ED_SCIENCE',        5, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 240, 'PHY2049L', 'GEN_ED_SCIENCE_LAB',    5, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 250, 'POS2041',  'GEN_ED_SOCIAL_SCIENCE', 5, FALSE, NULL, NULL, 'FULL_16_WEEK', TRUE),
+
+    -- ── Level 6/7: Capstone & Program Electives ────────────────────────────
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 260, 'LIT2000',  'GEN_ED_HUMANITIES',     6, FALSE, NULL,                NULL,                       'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 270, 'ECO2013',  'GEN_ED_SOCIAL_SCIENCE', 6, FALSE, NULL,                NULL,                       'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 280, 'CEN4090C', 'CAPSTONE',              7, FALSE, NULL,                NULL,                       'FULL_16_WEEK', FALSE),
+
+    -- Group A: 8 credits across 2 placeholder slots (CAI/CAP/CEN/CET/CGS/CIS/CNT/COP/CTS prefixes)
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 290, NULL,       'PROGRAM_ELECTIVE_A',    6, TRUE,  'GROUP_A_ELEC_4CR',  ARRAY['GROUP_A_ELEC_4CR'],  'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 300, NULL,       'PROGRAM_ELECTIVE_A',    6, TRUE,  'GROUP_A_ELEC_4CR',  ARRAY['GROUP_A_ELEC_4CR'],  'FULL_16_WEEK', TRUE),
+
+    -- Group B: 12 credits across 3 placeholder slots (level 2-4 of same prefixes)
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 310, NULL,       'PROGRAM_ELECTIVE_B',    6, TRUE,  'GROUP_B_ELEC_4CR',  ARRAY['GROUP_B_ELEC_4CR'],  'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 320, NULL,       'PROGRAM_ELECTIVE_B',    6, TRUE,  'GROUP_B_ELEC_4CR',  ARRAY['GROUP_B_ELEC_4CR'],  'FULL_16_WEEK', TRUE),
+    ('b2c3d4e5-f6a7-8901-2345-6789abcdef01', 330, NULL,       'PROGRAM_ELECTIVE_B',    6, TRUE,  'GROUP_B_ELEC_4CR',  ARRAY['GROUP_B_ELEC_4CR'],  'FULL_16_WEEK', TRUE)
+ON CONFLICT (program_model_id, priority) DO NOTHING;
+
+UPDATE public.program_model
+   SET is_active = TRUE
+ WHERE id = 'b2c3d4e5-f6a7-8901-2345-6789abcdef01';
+
+
 -- =============================================================================
 -- END OF FILE
 -- =============================================================================
