@@ -121,6 +121,68 @@ export async function getPlan(studentId) {
   return res.json();
 }
 
+// Records a student's elective override for a single program-model row.
+export async function setElectiveChoice(studentId, sourceRowId, courseId) {
+  const res = await fetch(`${BASE}/plans/${studentId}/electives`, {
+    method:  'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ source_row_id: sourceRowId, course_id: courseId }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Failed to set elective choice');
+  return body;
+}
+
+// --- Program Models (Phase 10) -----------------------------------------------
+
+export async function listProgramModels(programId) {
+  const params = programId ? `?program_id=${encodeURIComponent(programId)}` : '';
+  const res = await fetch(`${BASE}/program-models${params}`);
+  if (!res.ok) throw new Error('Failed to list program models');
+  return res.json();
+}
+
+export async function getProgramModel(modelId) {
+  const res = await fetch(`${BASE}/program-models/${modelId}`);
+  if (!res.ok) throw new Error('Failed to fetch program model');
+  return res.json();
+}
+
+export async function patchProgramModelRow(modelId, rowId, patch) {
+  const res = await fetch(`${BASE}/program-models/${modelId}/rows/${rowId}`, {
+    method:  'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(patch),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Failed to update row');
+  return body;
+}
+
+export async function activateProgramModel(modelId) {
+  const res = await fetch(`${BASE}/program-models/${modelId}/activate`, { method: 'POST' });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Failed to activate model');
+  return body;
+}
+
+// Advisor fills an unresolved slot with a chosen course.
+export async function resolveSlot(studentId, sourceRowId, courseId, { advisorId, notes } = {}) {
+  const res = await fetch(`${BASE}/plans/${studentId}/resolve-slot`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      source_row_id: sourceRowId,
+      course_id:     courseId,
+      advisor_id:    advisorId,
+      notes,
+    }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Failed to resolve slot');
+  return body;
+}
+
 // --- Faculty / Advisor Dashboard ---------------------------------------------
 
 export async function getFacultyOverview() {
@@ -243,6 +305,22 @@ export async function rejectSchedule(scheduleId) {
 }
 
 // --- Curriculum (Chairperson) ------------------------------------------------
+
+export async function createProgram(data) {
+  const res = await fetch(`${BASE}/faculty/programs`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Failed to create program');
+  return body;
+}
+
+export async function deleteProgram(degreeCode) {
+  const res = await fetch(`${BASE}/faculty/programs/${degreeCode}`, { method: 'DELETE' });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Failed to delete program');
+  return body;
+}
 
 export async function getProgramCourses(degreeCode) {
   const res = await fetch(`${BASE}/faculty/programs/${degreeCode}/courses`);

@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import {
   getAdvisorCaseload, getAdvisorPending, getFacultySubstitutions,
   getPlan, savePlan, getDegreeCourses, advisorReviewIEP,
+  resolveSlot,
 } from '../api';
 import PlanDisplay from '../components/PlanDisplay';
 import SemesterCard from '../components/SemesterCard';
@@ -242,7 +243,18 @@ function StudentSnapshot({ student, advisorId, onClose, onReview }) {
                 </div>
               )
               : plan
-                ? <PlanDisplay plan={plan.plan} studentName={`${student.first_name} ${student.last_name}`} />
+                ? <PlanDisplay
+                    plan={plan.plan}
+                    studentName={`${student.first_name} ${student.last_name}`}
+                    total_credits_scheduled={plan.total_credits_scheduled}
+                    total_credits_required={plan.total_credits_required}
+                    onResolveSlot={async (sourceRowId, courseId) => {
+                        await resolveSlot(student.user_id, sourceRowId, courseId, { advisorId });
+                        const refreshed = await getPlan(student.user_id);
+                        setPlan(refreshed);
+                    }}
+                    disablePicker
+                  />
                 : <p style={{ color: '#888', fontStyle: 'italic' }}>No plan has been generated yet.</p>
           }
         </div>

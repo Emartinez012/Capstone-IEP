@@ -17,6 +17,7 @@ const plansRouter    = require('./routes/plans');
 const coursesRouter  = require('./routes/courses');
 const majorsRouter   = require('./routes/majors');
 const facultyRouter  = require('./routes/faculty');
+const programModelsRouter = require('./routes/programModels');
 
 const app  = express();
 const PORT = 3001;
@@ -30,6 +31,7 @@ app.use('/api/plans',    plansRouter);
 app.use('/api/courses',  coursesRouter);
 app.use('/api/majors',   majorsRouter);
 app.use('/api/faculty',  facultyRouter);
+app.use('/api/program-models', programModelsRouter);
 
 app.get('/', (req, res) => {
     res.json({ message: 'Expert Advisor API is running.' });
@@ -42,6 +44,7 @@ async function migrate() {
         // Missing student_profiles columns
         `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS starting_term VARCHAR(10) DEFAULT '242'`,
         `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS is_transfer BOOLEAN DEFAULT FALSE`,
+        `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS courses_per_semester INTEGER`,
 
         // NOT NULL on critical FK columns
         `ALTER TABLE academic_history    ALTER COLUMN user_id     SET NOT NULL`,
@@ -49,7 +52,6 @@ async function migrate() {
         `ALTER TABLE degree_requirements ALTER COLUMN model_id    SET NOT NULL`,
         `ALTER TABLE degree_requirements ALTER COLUMN course_code SET NOT NULL`,
         `ALTER TABLE schedule_items      ALTER COLUMN schedule_id SET NOT NULL`,
-        `ALTER TABLE schedule_items      ALTER COLUMN course_code SET NOT NULL`,
 
         // Performance indexes
         `CREATE INDEX IF NOT EXISTS idx_academic_history_user       ON academic_history(user_id)`,
@@ -120,8 +122,9 @@ async function migrate() {
         `ALTER TABLE iep_snapshots ADD COLUMN IF NOT EXISTS status VARCHAR(30)`,
         `ALTER TABLE iep_snapshots ADD COLUMN IF NOT EXISTS student_user_id UUID`,
 
-        // Description column on courses
+        // Description and corequisite columns on courses
         `ALTER TABLE courses ADD COLUMN IF NOT EXISTS description TEXT`,
+        `ALTER TABLE courses ADD COLUMN IF NOT EXISTS corequisite_codes TEXT`,
 
         // Course sections table
         `CREATE TABLE IF NOT EXISTS course_sections (
@@ -150,6 +153,136 @@ async function migrate() {
                 ADD CONSTRAINT uq_degree_req_model_course UNIQUE (model_id, course_code);
             END IF;
         END $$`,
+
+        // Allow NULL course_code for Student Elective placeholder rows.
+        `ALTER TABLE schedule_items ALTER COLUMN course_code DROP NOT NULL`,
+        `ALTER TABLE schedule_items DROP CONSTRAINT IF EXISTS schedule_items_course_code_fkey`,
+
+        // ── Phase 1: Program model foundations ─────────────────────────────────
+        // Faculty-authored, priority-ordered slot list per degree program. No
+        // application code reads these yet (Phase 6: IEPGeneratorService).
+        `CREATE TABLE IF NOT EXISTS program_model (
+            id                      UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+            program_id              VARCHAR(50) NOT NULL REFERENCES degree_programs(degree_code) ON DELETE CASCADE,
+            version                 INTEGER NOT NULL DEFAULT 1,
+            effective_term          VARCHAR(10),
+            created_by              UUID REFERENCES users(user_id),
+            is_active               BOOLEAN NOT NULL DEFAULT FALSE,
+            total_credits_required  INTEGER,
+            created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            deleted_at              TIMESTAMP
+        )`,
+        // Belt-and-suspenders: ADD COLUMN for live containers created before
+        // total_credits_required existed; backfill from legacy degree_models.
+        `ALTER TABLE program_model ADD COLUMN IF NOT EXISTS total_credits_required INTEGER`,
+        `UPDATE program_model pm
+            SET total_credits_required = dm.total_credits_required
+            FROM degree_models dm
+            WHERE pm.program_id = dm.degree_code
+              AND pm.total_credits_required IS NULL`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_program_model_active
+            ON program_model (program_id) WHERE is_active = TRUE`,
+
+        `CREATE TABLE IF NOT EXISTS program_model_row (
+            id                  UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+            program_model_id    UUID NOT NULL REFERENCES program_model(id) ON DELETE CASCADE,
+            priority            INTEGER NOT NULL,
+            course_id           VARCHAR(20) REFERENCES courses(course_code),
+            category            VARCHAR(50),
+            level               INTEGER NOT NULL DEFAULT 1,
+            is_elective         BOOLEAN NOT NULL DEFAULT FALSE,
+            default_course_id   VARCHAR(20) REFERENCES courses(course_code),
+            allowed_course_ids  VARCHAR(20)[],
+            term_length         VARCHAR(20) DEFAULT 'FULL_16_WEEK',
+            offered_in_summer   BOOLEAN NOT NULL DEFAULT TRUE,
+            CONSTRAINT uq_program_model_row_priority UNIQUE (program_model_id, priority)
+        )`,
+
+        `CREATE TABLE IF NOT EXISTS iep_note (
+            id              UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+            schedule_id     UUID NOT NULL REFERENCES generated_schedules(schedule_id) ON DELETE CASCADE,
+            semester_number INTEGER NOT NULL,
+            code            VARCHAR(60) NOT NULL,
+            severity        VARCHAR(10) NOT NULL,
+            message         TEXT NOT NULL,
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+
+        // Separate fall/spring vs. summer targets; pinned program model; student type
+        `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS takes_summer               BOOLEAN DEFAULT FALSE`,
+        `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS target_courses_fall_spring INTEGER DEFAULT 3`,
+        `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS target_credits_fall_spring INTEGER DEFAULT 12`,
+        `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS target_courses_summer      INTEGER DEFAULT 2`,
+        `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS target_credits_summer      INTEGER DEFAULT 6`,
+        `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS selected_program_model_id  UUID REFERENCES program_model(id)`,
+        `ALTER TABLE student_profiles ADD COLUMN IF NOT EXISTS student_type               VARCHAR(10) DEFAULT 'new'`,
+
+        // Lab pairing detection + 8-week term support
+        `ALTER TABLE courses ADD COLUMN IF NOT EXISTS has_embedded_lab BOOLEAN DEFAULT FALSE`,
+        `ALTER TABLE courses ADD COLUMN IF NOT EXISTS lab_course_id    VARCHAR(20) REFERENCES courses(course_code)`,
+        `ALTER TABLE courses ADD COLUMN IF NOT EXISTS term_length      VARCHAR(20) DEFAULT 'FULL_16_WEEK'`,
+
+        // Indexes for new FK / lookup paths
+        `CREATE INDEX IF NOT EXISTS idx_program_model_program     ON program_model(program_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_program_model_row_model   ON program_model_row(program_model_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_program_model_row_course  ON program_model_row(course_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_iep_note_schedule         ON iep_note(schedule_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_student_profiles_program_model
+            ON student_profiles(selected_program_model_id)`,
+
+        // Value constraints in lieu of full PostgreSQL ENUM types — see
+        // schema_updates.sql section 8 for rationale. ResolutionSource is
+        // deferred to Phase 8 (its column does not exist yet).
+        `DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_courses_term_length') THEN
+                ALTER TABLE courses
+                    ADD CONSTRAINT chk_courses_term_length
+                    CHECK (term_length IN ('FULL_16_WEEK', 'FIRST_8_WEEK', 'SECOND_8_WEEK'));
+            END IF;
+        END $$`,
+        `DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_program_model_row_term_length') THEN
+                ALTER TABLE program_model_row
+                    ADD CONSTRAINT chk_program_model_row_term_length
+                    CHECK (term_length IN ('FULL_16_WEEK', 'FIRST_8_WEEK', 'SECOND_8_WEEK'));
+            END IF;
+        END $$`,
+        `DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_student_profiles_student_type') THEN
+                ALTER TABLE student_profiles
+                    ADD CONSTRAINT chk_student_profiles_student_type
+                    CHECK (student_type IN ('new', 'transfer', 'returning'));
+            END IF;
+        END $$`,
+        `DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_iep_note_severity') THEN
+                ALTER TABLE iep_note
+                    ADD CONSTRAINT chk_iep_note_severity
+                    CHECK (severity IN ('info', 'warning'));
+            END IF;
+        END $$`,
+
+        // ── Phase 8 — elective resolution tracking ─────────────────────────────
+        `ALTER TABLE schedule_items ADD COLUMN IF NOT EXISTS is_elective       BOOLEAN DEFAULT FALSE`,
+        `ALTER TABLE schedule_items ADD COLUMN IF NOT EXISTS resolution_source VARCHAR(30)`,
+        `ALTER TABLE schedule_items ADD COLUMN IF NOT EXISTS source_row_id     UUID REFERENCES program_model_row(id) ON DELETE SET NULL`,
+        `CREATE INDEX IF NOT EXISTS idx_schedule_items_source_row ON schedule_items(source_row_id)`,
+        // Phase 9 expands the set to include 'advisor_resolved'. Drop+recreate
+        // so re-running this migration on a container that already has the old
+        // CHECK doesn't get stuck with the narrower set.
+        `DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_schedule_items_resolution_source') THEN
+                ALTER TABLE schedule_items DROP CONSTRAINT chk_schedule_items_resolution_source;
+            END IF;
+            ALTER TABLE schedule_items
+                ADD CONSTRAINT chk_schedule_items_resolution_source
+                CHECK (resolution_source IS NULL
+                       OR resolution_source IN ('required', 'elective_default', 'elective_chosen',
+                                                'unresolved', 'advisor_resolved'));
+        END $$`,
+
+        // Phase 9 — reason column for unresolved slots.
+        `ALTER TABLE schedule_items ADD COLUMN IF NOT EXISTS reason TEXT`,
     ];
 
     for (const sql of migrations) {

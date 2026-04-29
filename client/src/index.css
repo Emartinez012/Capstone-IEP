@@ -272,6 +272,368 @@ body {
   padding: 6px 8px;
   margin-bottom: 2px;
 }
+
+/* --- Elective picker (Phase 8) ----------------------------- */
+.course-item.elective-row {
+  background: #f5f8ff;
+  border-left: 3px solid #4299e1;
+  padding: 6px 8px;
+  margin-bottom: 2px;
+  border-radius: 4px;
+  align-items: center;
+}
+
+.course-item.elective-row.override {
+  border-left-color: #805ad5;
+  background: #f8f5ff;
+}
+
+.elective-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.elective-select {
+  font-size: 12px;
+  padding: 2px 4px;
+  border: 1px solid #cbd5e0;
+  border-radius: 3px;
+  background: white;
+  font-weight: 600;
+  color: #2e5496;
+}
+
+.elective-select:disabled {
+  background: #f7fafc;
+  color: #4a5568;
+  cursor: default;
+}
+
+.elective-override-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #805ad5;
+  background: #ebe1ff;
+  border-radius: 2px;
+  padding: 1px 4px;
+}
+
+.course-item.unresolved-placeholder {
+  border: 1.5px dashed #f56565;
+  border-radius: 4px;
+  background: #fff5f5;
+  color: #c53030;
+  font-style: italic;
+  padding: 6px 8px;
+  margin-bottom: 2px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* --- Phase 10 — Program Model Editor ----------------------- */
+.curr-edit-model-btn {
+  margin-left: 12px;
+  padding: 6px 14px;
+  background: white;
+  color: #2c5282;
+  border: 1px solid #4299e1;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.curr-edit-model-btn:hover  { background: #ebf5ff; }
+.curr-edit-model-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pme-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 30px 20px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.pme-modal {
+  background: white;
+  width: 100%;
+  max-width: 1300px;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  padding: 24px 28px 32px;
+}
+
+.pme-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+}
+
+.pme-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  color: #1a202c;
+}
+
+.pme-subtitle {
+  font-size: 13px;
+  color: #4a5568;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pme-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.pme-badge.active   { background: #c6f6d5; color: #22543d; }
+.pme-badge.inactive { background: #fed7d7; color: #742a2a; }
+
+.pme-activate-btn {
+  margin-left: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: #2f855a;
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.pme-activate-btn:disabled { opacity: 0.6; }
+
+.pme-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: #718096;
+  line-height: 1;
+}
+
+.pme-banner {
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  color: #713f12;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+
+.pme-loading,
+.pme-error {
+  padding: 12px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.pme-error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.pme-table-wrap { overflow-x: auto; }
+
+.pme-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.pme-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #4a5568;
+  padding: 6px 8px;
+  border-bottom: 1.5px solid #cbd5e0;
+}
+
+.pme-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #edf2f7;
+  vertical-align: top;
+}
+
+.pme-row.editing { background: #f5f8ff; }
+
+.pme-subtle {
+  font-size: 11px;
+  color: #718096;
+  margin-top: 2px;
+}
+
+.pme-allowed-cell {
+  max-width: 220px;
+  word-break: break-word;
+}
+
+.pme-input {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 12px;
+  border: 1px solid #cbd5e0;
+  border-radius: 3px;
+  font-family: inherit;
+}
+.pme-input:disabled { background: #f7fafc; color: #a0aec0; }
+
+.pme-edit-btn,
+.pme-save-btn,
+.pme-cancel-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid;
+  margin-right: 4px;
+}
+.pme-edit-btn   { color: #2c5282; background: white; border-color: #4299e1; }
+.pme-edit-btn:hover { background: #ebf5ff; }
+.pme-save-btn   { color: white;   background: #2f855a; border-color: #2f855a; }
+.pme-save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.pme-cancel-btn { color: #4a5568; background: white;   border-color: #cbd5e0; }
+
+.pme-row-error,
+.pme-row-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  max-width: 220px;
+}
+.pme-row-error { color: #c53030; }
+.pme-row-hint  { color: #92400e; font-style: italic; }
+
+/* --- Phase 9 — credit-total banner ------------------------- */
+.plan-credit-banner {
+  margin: 0 0 16px;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.plan-credit-banner strong {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.plan-credit-banner.on-target {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.plan-credit-banner.short {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.plan-credit-banner.over {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.plan-credit-banner .banner-tag {
+  font-weight: 400;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+/* --- Phase 9 — advisor "resolve unresolved slot" inline form -- */
+.resolve-btn,
+.resolve-confirm,
+.resolve-cancel {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid;
+  cursor: pointer;
+  margin-left: 6px;
+}
+.resolve-btn         { color: #c53030; background: white; border-color: #f56565; }
+.resolve-btn:hover   { background: #fff0f0; }
+.resolve-confirm     { color: white;   background: #2f855a; border-color: #2f855a; }
+.resolve-confirm:disabled { opacity: 0.6; cursor: default; }
+.resolve-cancel      { color: #4a5568; background: white;   border-color: #cbd5e0; }
+.resolve-form { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; flex-wrap: wrap; }
+.resolve-input {
+  font-size: 12px;
+  padding: 2px 6px;
+  width: 110px;
+  border: 1px solid #cbd5e0;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+.resolve-error {
+  color: #c53030;
+  font-size: 11px;
+  width: 100%;
+}
+
+/* --- Per-semester notes (Phase 7 IEPNoteEmitter) ----------- */
+.semester-notes {
+  list-style: none;
+  margin: 0;
+  padding: 8px 14px 12px;
+  border-top: 1px solid #f0f4fb;
+}
+
+.semester-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 8px;
+  margin-top: 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.semester-note .note-icon {
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.semester-note.severity-info {
+  background: #eef5ff;
+  color: #2c5282;
+  border-left: 3px solid #4299e1;
+}
+
+.semester-note.severity-warning {
+  background: #fff8e6;
+  color: #744210;
+  border-left: 3px solid #d69e2e;
+}
 .course-item.elective-placeholder .course-code { color: #a0aec0; }
 
 /* --- Utility Messages -------------------------------------- */
@@ -3342,6 +3704,45 @@ body {
 
 .curr-empty { text-align: center; padding: 40px; color: #94a3b8; font-size: 14px; }
 .curr-loading { text-align: center; padding: 40px; color: #94a3b8; }
+
+.curr-program-info {
+  background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.curr-program-info-main {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.curr-program-info-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e40af;
+  background: #dbeafe;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.curr-program-info-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+}
+.curr-program-info-meta {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #475569;
+}
+.curr-program-info-meta strong { color: #334155; font-weight: 600; }
 
 /* --- Advisor Review UI ------------------------------------ */
 .snapshot-note-input {

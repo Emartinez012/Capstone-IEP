@@ -33,7 +33,8 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared-tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --protocol http2 --token ${TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run --protocol http2 --token eyJhIjoiMDg0MGQ1MGI0M2M0ZDIxMjE5OWFlMGRiYzNlNzQ1MzciLCJ0IjoiMjgwMTkxNjItODkxNS00NTQ5LWE1YTktNWFmYzU4ZTY2NDZjIiwicyI6Ik5USTRaamcxTmpjdE5UVmxOeTAwTXprd0xUa3hZall0Tnpoak1HSmxNRFF6TlRKbFpURXpPVGswWkRrdE9XRXhZUzAwT1RrNUxXSXpZVGN0WWpKaE5tSm1OMlV5WXpJMCJ9
+
 
     depends_on:
       - backend

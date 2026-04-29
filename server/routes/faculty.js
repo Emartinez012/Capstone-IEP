@@ -35,11 +35,11 @@ router.get('/overview', async (req, res) => {
     );
 
     const programRes = await db.query(`
-      SELECT dp.degree_code, dp.program_name, dp.dept_id,
+      SELECT dp.degree_code, dp.program_name, dp.dept_id, dp.department_name,
              COUNT(sp.user_id)::int AS student_count
       FROM   degree_programs dp
       LEFT JOIN student_profiles sp ON sp.degree_code = dp.degree_code
-      GROUP  BY dp.degree_code, dp.program_name, dp.dept_id
+      GROUP  BY dp.degree_code, dp.program_name, dp.dept_id, dp.department_name
       ORDER  BY dp.program_name
     `);
 
@@ -85,14 +85,43 @@ router.get('/overview', async (req, res) => {
       ORDER  BY u.last_name, u.first_name
     `);
 
-    const departments = deptRes.rows.map(dept => {
+    // Build the department list: real departments + a synthetic bucket for any
+    // programs whose dept_id is NULL and whose department_name doesn't match
+    // any existing dept. This keeps Drill-Down showing programs even when the
+    // SQL seed left dept_id unlinked.
+    const realDeptNames = new Set(deptRes.rows.map(d => d.dept_name));
+    const orphanGroups  = new Map(); // department_name -> [program rows]
+    for (const p of programRes.rows) {
+      if (p.dept_id) continue;
+      if (p.department_name && realDeptNames.has(p.department_name)) continue;
+      const key = p.department_name || 'Unaffiliated';
+      if (!orphanGroups.has(key)) orphanGroups.set(key, []);
+      orphanGroups.get(key).push(p);
+    }
+    const allDepts = [
+      ...deptRes.rows,
+      ...[...orphanGroups.keys()].map(name => ({
+        dept_id: `orphan_${name}`,
+        dept_name: name,
+        _orphan: true,
+      })),
+    ];
+
+    const departments = allDepts.map(dept => {
       const programs = programRes.rows
-        .filter(p => p.dept_id === dept.dept_id)
+        .filter(p =>
+          dept._orphan
+            ? !p.dept_id && (p.department_name || 'Unaffiliated') === dept.dept_name
+            : (p.dept_id === dept.dept_id ||
+               (!p.dept_id && p.department_name && p.department_name === dept.dept_name))
+        )
         .map(prog => {
           const advisors = advisorRes.rows
             .filter(a =>
-              a.dept_id === dept.dept_id &&
-              (a.programs.includes(prog.degree_code) || a.programs.length === 0)
+              dept._orphan
+                ? a.programs.includes(prog.degree_code)
+                : (a.dept_id === dept.dept_id &&
+                   (a.programs.includes(prog.degree_code) || a.programs.length === 0))
             )
             .map(adv => ({
               advisor_id:   adv.user_id,
@@ -290,12 +319,96 @@ router.get('/heatmap', async (req, res) => {
 // ── GET /api/faculty/programs ─────────────────────────────────────────────────
 router.get('/programs', async (req, res) => {
   try {
-    const result = await db.query(
-      `SELECT degree_code, program_name FROM degree_programs ORDER BY program_name`
-    );
+    const result = await db.query(`
+      SELECT dp.degree_code,
+             dp.program_name,
+             dp.department_name,
+             COUNT(DISTINCT dr.course_code) AS course_count,
+             COALESCE(SUM(c.credits), 0)    AS total_credits
+      FROM degree_programs dp
+      LEFT JOIN degree_models dm
+             ON dm.degree_code = dp.degree_code AND dm.is_published = true
+      LEFT JOIN degree_requirements dr
+             ON dr.model_id = dm.model_id AND dr.deleted_at IS NULL
+      LEFT JOIN courses c
+             ON c.course_code = dr.course_code
+      GROUP BY dp.degree_code, dp.program_name, dp.department_name
+      ORDER BY dp.program_name
+    `);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/faculty/programs ────────────────────────────────────────────────
+// Create a degree program plus a published degree_models row so courses can
+// be attached immediately.
+router.post('/programs', async (req, res) => {
+  const { degree_code, program_name, department_name } = req.body;
+  if (!degree_code?.trim() || !program_name?.trim()) {
+    return res.status(400).json({ error: 'degree_code and program_name are required.' });
+  }
+  const code = degree_code.trim().toUpperCase();
+
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+
+    const dup = await client.query(
+      `SELECT 1 FROM degree_programs WHERE degree_code = $1`, [code]
+    );
+    if (dup.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: `Program ${code} already exists.` });
+    }
+
+    await client.query(
+      `INSERT INTO degree_programs (degree_code, program_name, department_name)
+       VALUES ($1, $2, $3)`,
+      [code, program_name.trim(), department_name?.trim() || null]
+    );
+
+    await client.query(
+      `INSERT INTO degree_models (degree_code, version_number, is_published)
+       VALUES ($1, 1, true)`,
+      [code]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json({ degree_code: code, program_name: program_name.trim(),
+                          department_name: department_name?.trim() || null });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create program.' });
+  } finally {
+    client.release();
+  }
+});
+
+// ── DELETE /api/faculty/programs/:code ────────────────────────────────────────
+// Refuses to delete if any student_profiles still reference this program.
+router.delete('/programs/:code', async (req, res) => {
+  const { code } = req.params;
+  try {
+    const enrolled = await db.query(
+      `SELECT COUNT(*)::int AS n FROM student_profiles WHERE degree_code = $1`, [code]
+    );
+    const n = enrolled.rows[0].n;
+    if (n > 0) {
+      return res.status(409).json({
+        error: `Cannot delete: ${n} student${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} enrolled in this program.`,
+      });
+    }
+    const result = await db.query(
+      `DELETE FROM degree_programs WHERE degree_code = $1`, [code]
+    );
+    if (!result.rowCount) return res.status(404).json({ error: 'Program not found.' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete program.' });
   }
 });
 
@@ -418,7 +531,7 @@ router.get('/substitutions', async (req, res) => {
       JOIN   users u  ON u.user_id = cs.student_user_id
       JOIN   student_profiles sp ON sp.user_id = cs.student_user_id
       LEFT JOIN users ru ON ru.user_id = cs.assigned_reviewer_id
-      WHERE  cs.substitution_status IN ('Pending','In-Review')
+      WHERE  cs.substitution_status IN ('Pending','Under Review')
       ORDER  BY cs.submitted_at ASC
     `);
     res.json(result.rows);
@@ -684,17 +797,17 @@ router.post('/programs/:code/courses', async (req, res) => {
         `, [course_code.trim().toUpperCase(), title.trim(), credits || 3,
             description || null, prerequisite_codes || null]);
 
-        const modelRes = await client.query(`
+        const degreeModelRes = await client.query(`
             SELECT model_id FROM degree_models
             WHERE degree_code = $1 AND is_published = true
             ORDER BY version_number DESC LIMIT 1
         `, [code]);
 
-        if (!modelRes.rows.length) {
+        if (!degreeModelRes.rows.length) {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: 'No published degree model found for this program.' });
         }
-        const { model_id } = modelRes.rows[0];
+        const { model_id } = degreeModelRes.rows[0];
 
         const maxRes = await client.query(
             `SELECT COALESCE(MAX(priority_value), 0) AS mx FROM degree_requirements WHERE model_id = $1`,

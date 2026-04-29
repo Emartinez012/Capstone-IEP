@@ -7,6 +7,7 @@ import SemesterCard from '../components/SemesterCard';
 import {
   getPlan, generatePlan, getStudentProfile, getDegreeCourses,
   savePlan, getIEPStatus, submitIEP, respondToIEP, updateStudentProfile,
+  setElectiveChoice,
 } from '../api';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -70,6 +71,8 @@ export default function StudentDashboard({ user, onSignOut }) {
   const [iepStatus,     setIepStatus]     = useState(null);
   const [profile,       setProfile]       = useState(null);
   const [degreeCourses, setDegreeCourses] = useState([]);
+  const [creditsScheduled, setCreditsScheduled] = useState(null);
+  const [creditsRequired,  setCreditsRequired]  = useState(null);
 
   const [editMode,      setEditMode]      = useState(false);
   const [editPlan,      setEditPlan]      = useState(null);
@@ -98,6 +101,8 @@ export default function StudentDashboard({ user, onSignOut }) {
       ]);
       setPlan(planData?.plan ?? null);
       setGraduation(planData?.graduation_term ?? null);
+      setCreditsScheduled(planData?.total_credits_scheduled ?? null);
+      setCreditsRequired(planData?.total_credits_required ?? null);
       setIepStatus(statusData);
       setProfile(profileData);
       if (profileData?.degree_code) {
@@ -155,6 +160,38 @@ export default function StudentDashboard({ user, onSignOut }) {
     if (!editPlan) return new Set();
     return new Set(editPlan.flatMap(s => s.courses.map(c => c.course_code)));
   }
+
+  // Phase 8 — student picks an alternative for an elective slot. Optimistically
+  // updates the displayed plan, then persists via PATCH. On failure, reloads
+  // from the server so the UI matches reality.
+  async function handleElectiveChange(sourceRowId, newCourseId) {
+    if (!sourceRowId || !newCourseId) return;
+    setPlan(prev => prev?.map(sem => ({
+      ...sem,
+      courses: sem.courses.map(c =>
+        c.source_row_id === sourceRowId
+          ? {
+              ...c,
+              course_code: newCourseId,
+              is_student_override: newCourseId !== c.default_course_id,
+              resolution_source:   newCourseId !== c.default_course_id ? 'elective_chosen' : 'elective_default',
+            }
+          : c
+      ),
+    })));
+    try {
+      await setElectiveChoice(user.id, sourceRowId, newCourseId);
+      showToast('Elective updated.');
+    } catch (e) {
+      setError(e.message || 'Could not update elective.');
+      const refreshed = await getPlan(user.id);
+      if (refreshed) setPlan(refreshed.plan);
+    }
+  }
+
+  // Set of courses the student has already completed — fed to the picker so
+  // it filters out courses the student can't retake.
+  const completedCourseCodes = (profile?.academic_history || []).map(c => c.course_code);
 
   async function saveEdits() {
     setSaving(true);
@@ -216,6 +253,8 @@ export default function StudentDashboard({ user, onSignOut }) {
       const data = await generatePlan(user.id);
       setPlan(data.plan);
       setGraduation(data.graduation_term);
+      setCreditsScheduled(data.total_credits_scheduled ?? null);
+      setCreditsRequired(data.total_credits_required ?? null);
       const sd = await getIEPStatus(user.id);
       setIepStatus(sd);
       showToast('Plan generated!');
@@ -465,6 +504,20 @@ export default function StudentDashboard({ user, onSignOut }) {
           </div>
         )}
 
+        {/* Phase 9 — credit-total banner */}
+        {displayPlan?.length > 0 && creditsScheduled !== null && creditsRequired !== null && (() => {
+          const isShort = creditsScheduled < creditsRequired;
+          const isOver  = creditsScheduled > creditsRequired;
+          const cls     = `plan-credit-banner ${isShort ? 'short' : isOver ? 'over' : 'on-target'}`;
+          return (
+            <div className={cls} role="status">
+              <strong>{creditsScheduled}</strong> / {creditsRequired} credits planned
+              {isShort && <span className="banner-tag">— short by {creditsRequired - creditsScheduled}</span>}
+              {isOver  && <span className="banner-tag">— over by {creditsScheduled - creditsRequired}</span>}
+            </div>
+          );
+        })()}
+
         {/* Semester grid */}
         {displayPlan?.length > 0 && (
           <div className="semester-grid">
@@ -474,9 +527,13 @@ export default function StudentDashboard({ user, onSignOut }) {
                 semester_number={sem.semester}
                 term_code={sem.term_code}
                 courses={sem.courses}
+                notes={sem.notes}
                 editMode={editMode}
                 onRemove={code => removeCourse(sem.semester, code)}
                 onAddCourse={() => setPicker({ semester: sem.semester, term_code: sem.term_code })}
+                completed_courses={completedCourseCodes}
+                onElectiveChange={editMode ? undefined : handleElectiveChange}
+                disablePicker={editMode}
               />
             ))}
           </div>

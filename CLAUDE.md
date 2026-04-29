@@ -23,10 +23,16 @@ Visit http://localhost:5173. The Vite dev server proxies all `/api` requests to 
 docker exec -i <container_name> psql -U admin -d iep_engine < server/migrations/schema_updates.sql
 ```
 
-**Reseed database:** `cd server && node seed.js` — resets and repopulates all tables with test data and both degree tracks (S9501, S9520).
+**Reseed database** (two steps — order matters):
+```bash
+# 1. Apply course/degree data (run once, or after DB wipe)
+docker exec -i <container_name> psql -U admin -d iep_engine < entec_bs_seed_v2.sql
+# 2. Create test users
+cd server && node seed.js
+```
 
 **Test accounts:**
-- Student: `student1@mdc.edu` / `password123` (S9501, profile complete — goes to dashboard)
+- Student: `student1@mdc.edu` / `password123` (BS-ISTS, profile complete — goes to dashboard)
 - Advisor: `advisor1@mdc.edu` / `password123`
 
 ## Other Commands
@@ -86,17 +92,25 @@ All preferences are saved via `PUT /api/students/:id`, then `POST /api/plans/gen
 
 ### Plan Generation Algorithm (`server/algorithm/planAlgorithm.js`)
 
-Entry point: `createPlan(student, history, model)`.
+Entry point: `createPlan(completedCourses, modelCourses, student, degreeModel, creditBuffer)`.
 
-1. Builds a set of completed courses from `history`
-2. Filters remaining required courses from `model`
-3. Iteratively assigns courses to semesters by checking prerequisite satisfaction (`checkPrerequisites`)
-4. Packs courses up to `target_credits` per semester (default 12)
-5. Advances term codes via `advanceTerm`, respecting `opt_out_summer`
+1. Marks completed/transfer courses from `completedCourses` (field: `course_id`)
+2. Sorts remaining required courses by `priority_index` ASC
+3. Hybrid strict-priority walk: places courses in order; when a course is blocked, allows its prerequisite chain to be placed first (unblocking it next semester)
+4. Corequisites (lecture + lab pairs) are atomic — placed together or deferred together
+5. Fills remaining semester capacity with "Student Elective" placeholder rows
+6. Advances term codes via `updateTerm`, skipping summer if `include_summer === false`
+
+`plans.js` maps DB column names before calling the algorithm:
+- `target_credits` → `credits_per_semester`
+- `NOT opt_out_summer` → `include_summer`
+- `course_code` → `course_id` (model and history rows)
+- `priority_value` → `priority_index`
+- `prerequisite_codes` string → `prerequisites` array (via `parsePrereqCodes`)
 
 **Term code format:** `YYT` — e.g., `261` = Fall 2026, `262` = Spring 2027, `263` = Summer 2027.
 
-Currently uses: `starting_term`, `target_credits`, `opt_out_summer`.
+Currently uses: `starting_term`, `credits_per_semester`, `include_summer`, `total_credits_required`.
 Stored but not yet used by algorithm: `preferred_modality`, `preferred_campus_location`, `preferred_time_slot`, `preferred_term_durations` — reserved for future section-matching against `course_sections`.
 
 ### Frontend View State
@@ -138,13 +152,21 @@ Plan output is rendered by `PlanDisplay.jsx` → `SemesterCard.jsx`.
 
 ### Seeded Degree Tracks
 
-| Code | Program | Courses |
+All 6 programs are seeded by `entec_bs_seed_v2.sql` (171 courses total):
+
+| Code | Program | Total Credits |
 |---|---|---|
-| S9501 | B.S. Information Systems Tech — Software Engineering | ENC1101, MAC1105, CGS1060C, CTS1134, CIS3510, CGS1540C, COP1334, CGS3763, COP2800 |
-| S9520 | B.S. Applied Artificial Intelligence | ENC1101, MAC1105, CAI1001C, COP1047C, PHI2680, STA2023, CAI2100C, COP2800, CAI2840C, CAI2300C, CAI3821C, CAI3303C, COP3530, CAI4505C |
+| BS-ISTS | B.S. IST — Software Engineering Concentration | 120 |
+| BS-AAI  | B.S. Applied Artificial Intelligence | 120 |
+| BS-DA   | B.S. Data Analytics | 120 |
+| BS-CYB  | B.S. Cybersecurity | 120 |
+| BS-ECET | B.S. Electrical & Computer Engineering Technology | 134 |
+| BS-ISTN | B.S. IST — Networking Concentration | 120 |
+
+Test users (`seed.js`) use BS-ISTS (students 1–3, 7) and BS-AAI (students 4–6).
 
 ### Known Gaps
 
-- `STA2023` prereq references `MAT1033 OR MGF1131` (not seeded) — algorithm skips it with a warning
-- `CAI4505C` prereq references `CAI3822C` (not seeded) — algorithm skips it with a warning
 - `course_sections` table is empty — section-matching not yet implemented
+- OR-logic in prerequisite evaluation is not supported; `prerequisite_codes` uses comma-separated AND lists; legacy boolean-expression strings are tokenised to AND (approximation)
+- `degree_programs.dept_id` is NULL after SQL seed — no app logic reads this field yet

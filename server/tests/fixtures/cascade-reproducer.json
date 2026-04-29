@@ -1,0 +1,32 @@
+{
+  "name": "Placeholder cascade — a freely-placeable later row is NOT trapped behind unresolvable prereqs",
+  "shape": "iep_generator",
+  "description": "The original cascade demonstration in M2 shape. The model has 5 rows: A and B are level-1 freely-placeable; C has a prereq (XYZ_NEVER) that is never satisfiable; D's prereq is C, also permanently blocked; E is level-1 with no prereqs and lower priority than C/D. The legacy planAlgorithm enters 'restricted mode' on D's prereq chain — that allow-list excludes E from every subsequent semester, so E silently never gets placed and slots fill with Student Elective placeholders. The Phase 6 IEPGeneratorService MUST place A, B, and E, and surface C and D as explicit unresolved slots. No silent placeholders, no trap.",
+  "input": {
+    "programModel": {
+      "program_id": "TEST-CASCADE",
+      "total_credits_required": 15,
+      "rows": [
+        { "priority": 1, "course_id": "A", "level": 1, "is_elective": false, "category": "MAJOR", "credits": 3, "prerequisites": [] },
+        { "priority": 2, "course_id": "B", "level": 1, "is_elective": false, "category": "MAJOR", "credits": 3, "prerequisites": [] },
+        { "priority": 3, "course_id": "C", "level": 2, "is_elective": false, "category": "MAJOR", "credits": 3, "prerequisites": ["XYZ_NEVER"] },
+        { "priority": 4, "course_id": "D", "level": 3, "is_elective": false, "category": "MAJOR", "credits": 3, "prerequisites": ["C"] },
+        { "priority": 5, "course_id": "E", "level": 1, "is_elective": false, "category": "MAJOR", "credits": 3, "prerequisites": [] }
+      ]
+    },
+    "studentProfile": {
+      "starting_term": "261",
+      "takes_summer": false,
+      "target_courses_fall_spring": 2,
+      "target_credits_fall_spring": 6,
+      "target_courses_summer": 0,
+      "target_credits_summer": 0
+    },
+    "completedCourses": []
+  },
+  "expectations": {
+    "must_be_placed": ["A", "B", "E"],
+    "must_be_unresolved": ["C", "D"],
+    "no_silent_placeholders": true
+  }
+}

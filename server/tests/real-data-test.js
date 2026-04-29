@@ -6,13 +6,16 @@
 //
 // Reads input from:  tests/real-data-input.json
 //
-// To use with the professor's data:
-//   1. Open real-data-input.json
-//   2. Update "student" (name, starting_term, courses_per_semester)
-//   3. Update "completed_courses" with the student's transcript
-//   4. If the program model is different, replace "program_model"
-//   5. Optionally fill in "expected_output" if you know what the result should be
-//   6. Run:  node tests/real-data-test.js
+// To use with real student data:
+//   1. Open real-data-input.json.
+//   2. Update "student" (name, starting_term, credits_per_semester, include_summer).
+//   3. Update "completed_courses" with the student's transcript.
+//   4. If the program model is different, replace "program_model".
+//      Each course needs: course_id, code, name, priority_index, prerequisites (array
+//      of course_id values), and credits.
+//   5. Set "total_credits_required" to the program's total credit requirement.
+//   6. Optionally set "expected_output" if you know what the result should be.
+//   7. Run:  node tests/real-data-test.js
 // =============================================================================
 
 const fs   = require('fs');
@@ -31,13 +34,13 @@ if (!fs.existsSync(inputPath)) {
 }
 
 const input = JSON.parse(fs.readFileSync(inputPath, 'utf-8'));
-const { student, program_model, completed_courses, expected_output } = input;
+const { student, program_model, completed_courses, expected_output, total_credits_required } = input;
 
 // -----------------------------------------------------------------------------
 // Validate required fields
 // -----------------------------------------------------------------------------
-if (!student || !student.starting_term || !student.courses_per_semester) {
-    console.error('\nERROR: "student" must have "starting_term" and "courses_per_semester".');
+if (!student || !student.starting_term || !student.credits_per_semester) {
+    console.error('\nERROR: "student" must have "starting_term" and "credits_per_semester".');
     process.exit(1);
 }
 if (!program_model || program_model.length === 0) {
@@ -47,7 +50,6 @@ if (!program_model || program_model.length === 0) {
 
 // -----------------------------------------------------------------------------
 // Helper: convert YYT term code to a human-readable label
-// Mirrors the logic in client/src/utils.js
 // -----------------------------------------------------------------------------
 function termCodeToLabel(termCode) {
     const code = String(termCode);
@@ -63,28 +65,39 @@ function termCodeToLabel(termCode) {
 // -----------------------------------------------------------------------------
 const completedForAlgo = (completed_courses || []).map(c => ({
     course_id:              c.course_id,
-    substituting_course_id: c.substituting_course_id ?? null
+    substituting_course_id: c.substituting_course_id ?? null,
 }));
 
+// Each model entry needs: course_id, priority_index, prerequisites (array), credits
 const modelForAlgo = [...program_model]
     .sort((a, b) => a.priority_index - b.priority_index)
     .map(c => ({
         course_id:      c.course_id,
         priority_index: c.priority_index,
-        levels:         c.levels
+        prerequisites:  Array.isArray(c.prerequisites) ? c.prerequisites : [],
+        credits:        typeof c.credits === 'number' ? c.credits : 3,
     }));
 
-// Build a lookup map: course_id → full course object (for printing names)
+const studentForAlgo = {
+    starting_term:        student.starting_term,
+    credits_per_semester: student.credits_per_semester,
+    include_summer:       student.include_summer !== false, // default true
+};
+
+const degreeModel = {
+    total_credits_required: typeof total_credits_required === 'number'
+        ? total_credits_required
+        : null,
+};
+
+// Build a lookup map: course_id → full course object (for printing)
 const courseById = {};
 program_model.forEach(c => { courseById[c.course_id] = c; });
 
 // -----------------------------------------------------------------------------
 // Run the algorithm
 // -----------------------------------------------------------------------------
-const planEntries = createPlan(completedForAlgo, modelForAlgo, {
-    starting_term:        student.starting_term,
-    courses_per_semester: student.courses_per_semester
-});
+const planEntries = createPlan(completedForAlgo, modelForAlgo, studentForAlgo, degreeModel);
 
 // Group flat plan entries into semester buckets
 const semesterMap = {};
@@ -93,16 +106,18 @@ for (const entry of planEntries) {
         semesterMap[entry.semester_number] = {
             semester_number: entry.semester_number,
             term_code:       entry.term_code,
-            courses:         []
+            courses:         [],
         };
     }
-    semesterMap[entry.semester_number].courses.push(courseById[entry.course_id]);
+    if (entry.course_id) {
+        semesterMap[entry.semester_number].courses.push(courseById[entry.course_id]);
+    }
 }
 const semesters = Object.values(semesterMap)
     .sort((a, b) => a.semester_number - b.semester_number);
 
 // -----------------------------------------------------------------------------
-// Print header summary
+// Print summary
 // -----------------------------------------------------------------------------
 const LINE = '='.repeat(64);
 const line = '-'.repeat(64);
@@ -112,10 +127,11 @@ console.log('  EXPERT ADVISOR — REAL DATA TEST');
 console.log(LINE);
 console.log(`  Student         : ${student.name}`);
 console.log(`  Starting term   : ${student.starting_term}  (${termCodeToLabel(student.starting_term)})`);
-console.log(`  Courses/semester: ${student.courses_per_semester}`);
+console.log(`  Credits/semester: ${student.credits_per_semester}`);
+console.log(`  Include summer  : ${studentForAlgo.include_summer}`);
 console.log(`  Courses completed (input): ${completed_courses?.length ?? 0}`);
-console.log(`  Courses remaining (to schedule): ${planEntries.length}`);
-console.log(`  Semesters generated: ${semesters.length}`);
+console.log(`  Plan entries generated   : ${planEntries.length}`);
+console.log(`  Semesters generated      : ${semesters.length}`);
 console.log(LINE);
 
 // -----------------------------------------------------------------------------
@@ -131,8 +147,8 @@ if (semesters.length === 0) {
         console.log(`  Semester ${sem.semester_number} — ${label}`);
         console.log('  ' + line.slice(2));
         for (const c of sem.courses) {
-            const code = (c?.code ?? 'UNKNOWN').padEnd(12);
-            const name = c?.name ?? 'Unknown course';
+            const code = (c?.code ?? 'ELECTIVE').padEnd(12);
+            const name = c?.name ?? 'Student Elective';
             console.log(`    ${code}  ${name}`);
         }
         console.log('');
@@ -166,7 +182,7 @@ for (let i = 0; i < maxLen; i++) {
     }
     if (actual && !expected) {
         const actualCodes = actual.courses.map(c => c?.code ?? '???').sort().join(', ');
-        console.log(`  FAIL  Semester ${i + 1}: algorithm produced a semester with no expected counterpart.`);
+        console.log(`  FAIL  Semester ${i + 1}: algorithm produced extra semester.`);
         console.log(`        Got:      ${actualCodes}`);
         allPass = false;
         continue;

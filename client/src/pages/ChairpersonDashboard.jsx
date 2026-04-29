@@ -14,7 +14,9 @@ import {
   assignStudentToAdvisor, autoAssignProgram,
   getProgramCourses, addProgramCourse, removeProgramCourse, updateCourse,
   getCourseSections, addCourseSection, updateCourseSection, deleteCourseSection,
+  createProgram, deleteProgram,
 } from '../api';
+import ProgramModelEditor from './ProgramModelEditor';
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -726,6 +728,62 @@ const CAMPUSES_LIST = ['Homestead', 'North', 'Kendall', 'Wolfson', 'Padron', 'We
 const MODALITIES    = ['In-Person', 'Online', 'Blended'];
 const DAY_PATTERNS  = ['MWF', 'TTh', 'SAT', 'Daily', 'Online'];
 
+function ProgramModal({ onSave, onClose }) {
+  const [form, setForm] = useState({
+    degree_code:     '',
+    program_name:    '',
+    department_name: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState('');
+
+  async function handleSave() {
+    if (!form.degree_code.trim() || !form.program_name.trim()) {
+      setErr('Degree code and program name are required.'); return;
+    }
+    setSaving(true); setErr('');
+    try { await onSave(form); }
+    catch (e) { setErr(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="snapshot-overlay" onClick={onClose}>
+      <div className="snapshot-modal curr-modal" onClick={e => e.stopPropagation()}>
+        <div className="snapshot-header">
+          <h3>New Program</h3>
+          <button className="snapshot-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="curr-modal-body">
+          {err && <div className="curr-modal-err">{err}</div>}
+          <div className="curr-field">
+            <label>Degree Code</label>
+            <input className="curr-input" placeholder="e.g. BS-XYZ" value={form.degree_code}
+              onChange={e => setForm(f => ({ ...f, degree_code: e.target.value.toUpperCase() }))} />
+          </div>
+          <div className="curr-field">
+            <label>Program Name</label>
+            <input className="curr-input" placeholder="Bachelor of Science in …" value={form.program_name}
+              onChange={e => setForm(f => ({ ...f, program_name: e.target.value }))} />
+          </div>
+          <div className="curr-field">
+            <label>Department</label>
+            <input className="curr-input" placeholder="School of …" value={form.department_name}
+              onChange={e => setForm(f => ({ ...f, department_name: e.target.value }))} />
+          </div>
+        </div>
+        <div className="snapshot-footer">
+          <button className="drill-btn" onClick={onClose}>Cancel</button>
+          <button className="btn-approve" onClick={handleSave}
+            disabled={saving || !form.degree_code.trim() || !form.program_name.trim()}>
+            {saving ? 'Creating…' : 'Create Program'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CourseModal({ course, onSave, onClose }) {
   const isNew = !course;
   const [form, setForm] = useState({
@@ -895,7 +953,7 @@ function SectionModal({ section, courseCode, onSave, onClose }) {
   );
 }
 
-function CurriculumTab({ programs }) {
+function CurriculumTab({ programs, onProgramsChanged }) {
   const [selProgram,    setSelProgram]    = useState(programs[0]?.degree_code ?? '');
   const [courses,       setCourses]       = useState([]);
   const [loading,       setLoading]       = useState(false);
@@ -910,10 +968,25 @@ function CurriculumTab({ programs }) {
   const [addSecFor,     setAddSecFor]     = useState(null);  // course_code
   const [editSec,       setEditSec]       = useState(null);  // section obj
 
+  const [editingProgramModel, setEditingProgramModel] = useState(null); // programId | null
+  const [showAddProgram,    setShowAddProgram]    = useState(false);
+  const [confirmDelProgram, setConfirmDelProgram] = useState(false);
+  const [delProgramErr,     setDelProgramErr]     = useState('');
+
   const [error,  setError]  = useState('');
   const [toast,  setToast]  = useState('');
 
   useEffect(() => { if (selProgram) load(selProgram); }, [selProgram]);
+
+  // Keep selProgram aligned with the programs list (pick first if current is gone).
+  useEffect(() => {
+    if (!programs.length) { setSelProgram(''); return; }
+    if (!programs.some(p => p.degree_code === selProgram)) {
+      setSelProgram(programs[0].degree_code);
+    }
+  }, [programs, selProgram]);
+
+  const currentProgram = programs.find(p => p.degree_code === selProgram);
 
   function flash(msg) { setToast(msg); setTimeout(() => setToast(''), 3000); }
 
@@ -978,6 +1051,27 @@ function CurriculumTab({ programs }) {
     flash('Section updated.');
   }
 
+  async function handleCreateProgram(form) {
+    const created = await createProgram(form);
+    await onProgramsChanged?.();
+    setSelProgram(created.degree_code);
+    setShowAddProgram(false);
+    flash(`Program ${created.degree_code} created.`);
+  }
+
+  async function handleDeleteProgram() {
+    setDelProgramErr('');
+    try {
+      await deleteProgram(selProgram);
+      const removed = selProgram;
+      await onProgramsChanged?.();
+      setConfirmDelProgram(false);
+      flash(`Program ${removed} deleted.`);
+    } catch (e) {
+      setDelProgramErr(e.message);
+    }
+  }
+
   async function handleDeleteSection(sec) {
     await deleteCourseSection(sec.section_id);
     setSections(p => ({ ...p, [sec.course_code]: p[sec.course_code].filter(s => s.section_id !== sec.section_id) }));
@@ -1007,16 +1101,65 @@ function CurriculumTab({ programs }) {
       <div className="curr-toolbar">
         <div className="curr-program-row">
           <span className="curr-select-lbl">Program</span>
-          <select className="curr-select" value={selProgram} onChange={e => setSelProgram(e.target.value)}>
+          <select
+            className="curr-select"
+            value={selProgram}
+            onChange={e => setSelProgram(e.target.value)}
+            disabled={!programs.length}
+          >
+            {programs.length === 0 && <option value="">— No programs —</option>}
             {programs.map(p => (
               <option key={p.degree_code} value={p.degree_code}>{p.program_name}</option>
             ))}
           </select>
         </div>
-        <button className="curr-add-btn" onClick={() => { setError(''); setShowAddCourse(true); }}>
+        <button className="curr-add-btn" onClick={() => { setError(''); setShowAddProgram(true); }}>
+          + New Program
+        </button>
+        <button
+          className="curr-add-btn"
+          onClick={() => { setError(''); setShowAddCourse(true); }}
+          disabled={!selProgram}
+        >
           + Add Course
         </button>
+        <button
+          className="curr-edit-model-btn"
+          onClick={() => { setError(''); setEditingProgramModel(selProgram); }}
+          disabled={!selProgram}
+          title="Edit the priority-ordered program model used by the IEP generator"
+        >
+          Edit Program Model
+        </button>
+        <button
+          className="curr-btn curr-btn-del"
+          onClick={() => { setDelProgramErr(''); setConfirmDelProgram(true); }}
+          disabled={!selProgram}
+          title="Delete this program"
+          style={{ marginLeft: 'auto' }}
+        >
+          Delete Program
+        </button>
       </div>
+
+      {/* Program info header */}
+      {currentProgram && (
+        <div className="curr-program-info">
+          <div className="curr-program-info-main">
+            <span className="curr-program-info-code">{currentProgram.degree_code}</span>
+            <span className="curr-program-info-name">{currentProgram.program_name}</span>
+          </div>
+          <div className="curr-program-info-meta">
+            <span><strong>Department:</strong> {currentProgram.department_name || '—'}</span>
+            <span><strong>Courses:</strong> {currentProgram.course_count ?? courses.length}</span>
+            <span><strong>Total credits:</strong> {currentProgram.total_credits ?? '—'}</span>
+          </div>
+        </div>
+      )}
+
+      {!programs.length && (
+        <div className="curr-empty">No programs yet. Click <strong>+ New Program</strong> to create one.</div>
+      )}
 
       {error && <div className="curr-error">{error}</div>}
 
@@ -1166,10 +1309,40 @@ function CurriculumTab({ programs }) {
         </div>
       )}
 
+      {showAddProgram && (
+        <ProgramModal onSave={handleCreateProgram} onClose={() => setShowAddProgram(false)} />
+      )}
+
+      {confirmDelProgram && currentProgram && (
+        <div className="snapshot-overlay" onClick={() => setConfirmDelProgram(false)}>
+          <div className="snapshot-modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <div className="snapshot-header">
+              <h3>Delete Program</h3>
+              <button className="snapshot-close" onClick={() => setConfirmDelProgram(false)}>✕</button>
+            </div>
+            <div style={{ padding: '16px 20px', fontSize: 14, color: '#374151' }}>
+              Delete <strong>{currentProgram.degree_code}</strong> — {currentProgram.program_name}?
+              This removes the program, its degree model, and its course requirements. Courses themselves remain in the system.
+              {delProgramErr && <div className="curr-error" style={{ marginTop: 12 }}>{delProgramErr}</div>}
+            </div>
+            <div className="snapshot-footer">
+              <button className="drill-btn" onClick={() => setConfirmDelProgram(false)}>Cancel</button>
+              <button className="btn-reject" onClick={handleDeleteProgram}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddCourse && <CourseModal onSave={handleAddCourse} onClose={() => setShowAddCourse(false)} />}
       {editCourse    && <CourseModal course={editCourse}  onSave={handleEditCourse} onClose={() => setEditCourse(null)} />}
       {addSecFor     && <SectionModal courseCode={addSecFor}  onSave={handleAddSection} onClose={() => setAddSecFor(null)} />}
       {editSec       && <SectionModal section={editSec} courseCode={editSec.course_code} onSave={handleEditSection} onClose={() => setEditSec(null)} />}
+      {editingProgramModel && (
+        <ProgramModelEditor
+          programId={editingProgramModel}
+          onClose={() => { setEditingProgramModel(null); flash('Done editing program model.'); }}
+        />
+      )}
     </div>
   );
 }
@@ -1199,6 +1372,11 @@ export default function ChairpersonDashboard({ user, onSignOut }) {
       setOverview(ov.departments || []);
       setAdvisors(adv);
     } catch { /* errors shown per-tab */ }
+  }
+
+  async function loadPrograms() {
+    try { setPrograms(await getFacultyPrograms()); }
+    catch { /* errors shown per-tab */ }
   }
 
   useEffect(() => {
@@ -1297,7 +1475,7 @@ export default function ChairpersonDashboard({ user, onSignOut }) {
           <ManagementTab programs={programs} onRefresh={loadOverview} />
         )}
         {tab === 'curriculum' && (
-          <CurriculumTab programs={programs} />
+          <CurriculumTab programs={programs} onProgramsChanged={loadPrograms} />
         )}
       </main>
     </div>

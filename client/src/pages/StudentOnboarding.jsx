@@ -75,7 +75,9 @@ export default function StudentOnboarding({ user, onComplete }) {
     is_transfer:               false,
     degree_code:               '',
     target_credits:            12,        // financial-aid baseline default
-    opt_out_summer:            false,
+    takes_summer:              false,     // M2 default — students opt INTO summer
+    target_courses_summer:     2,
+    target_credits_summer:     6,
     preferred_term_durations:  [16],
     preferred_modality:        [],
     preferred_campus_location:  '',
@@ -224,7 +226,7 @@ export default function StudentOnboarding({ user, onComplete }) {
           <div className="ob-step">
             <p className="ob-step-eyebrow">Degree Program</p>
             <h2 className="ob-step-title">What's your intended major?</h2>
-            <p className="ob-step-sub">Your degree model determines which courses appear in your plan.</p>
+            <p className="ob-step-sub">Your program determines which courses appear in your plan.</p>
             <select
               className="ob-select"
               value={form.degree_code || ''}
@@ -246,7 +248,7 @@ export default function StudentOnboarding({ user, onComplete }) {
             <h2 className="ob-step-title">How do you plan to take classes?</h2>
             <p className="ob-step-sub">12 credits is the full-time baseline required for financial aid.</p>
 
-            <p className="ob-sub-label">Credits per semester</p>
+            <p className="ob-sub-label">Fall / Spring credits per semester</p>
             <div className="ob-load-cards" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
               {CREDIT_OPTIONS.map(opt => (
                 <div
@@ -284,11 +286,38 @@ export default function StudentOnboarding({ user, onComplete }) {
             <label className="ob-toggle">
               <input
                 type="checkbox"
-                checked={form.opt_out_summer}
-                onChange={e => setForm(f => ({ ...f, opt_out_summer: e.target.checked }))}
+                checked={form.takes_summer}
+                onChange={e => setForm(f => ({ ...f, takes_summer: e.target.checked }))}
               />
-              Skip summer semesters
+              Take courses during summer terms
             </label>
+
+            {form.takes_summer && (
+              <div style={{ marginTop: '0.75rem', display: 'flex', gap: '1rem' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', fontSize: '0.9rem' }}>
+                  Summer courses
+                  <input
+                    type="number"
+                    min="1"
+                    max="4"
+                    value={form.target_courses_summer}
+                    onChange={e => setForm(f => ({ ...f, target_courses_summer: parseInt(e.target.value, 10) || 0 }))}
+                    style={{ width: '5rem', marginTop: '0.25rem' }}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', fontSize: '0.9rem' }}>
+                  Summer credits
+                  <input
+                    type="number"
+                    min="3"
+                    max="12"
+                    value={form.target_credits_summer}
+                    onChange={e => setForm(f => ({ ...f, target_credits_summer: parseInt(e.target.value, 10) || 0 }))}
+                    style={{ width: '5rem', marginTop: '0.25rem' }}
+                  />
+                </label>
+              </div>
+            )}
           </div>
         );
 
